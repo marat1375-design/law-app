@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Справочник Законов РК</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #007acc;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .search-box {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            border-radius: 8px;
+            border: 2px solid #333;
+            background-color: #252526;
+            color: white;
+            box-sizing: border-box;
+            margin-bottom: 25px;
+            outline: none;
+        }
+        .search-box:focus {
+            border-color: #007acc;
+        }
+        .law-card {
+            background-color: #2d2d2d;
+            border-left: 5px solid #007acc;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .law-title {
+            font-weight: bold;
+            color: #4fc1ff;
+            margin-bottom: 5px;
+            font-size: 18px;
+        }
+        .article-num {
+            color: #ce9178;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .law-text {
+            line-height: 1.6;
+            color: #d4d4d4;
+        }
+        .no-results {
+            text-align: center;
+            color: #888;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Справочник Законов РК 🇰🇿</h1>
+    <input type="text" id="searchInput" class="search-box" placeholder="Начните вводить слово для поиска (например: отходы, работа, ПДД)..." autocomplete="off">
+    
+    <div id="results">
+        <div class="no-results">Введите поисковый запрос, чтобы увидеть статьи...</div>
+    </div>
+</div>
+
+<script>
+    const searchInput = document.getElementById('searchInput');
+    const resultsContainer = document.getElementById('results');
+
+    searchInput.addEventListener('input', async (e) => {
+        const query = e.target.value.trim();
+        
+        if (query.length < 2) {
+            resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            const data = await response.json();
+            
+            resultsContainer.innerHTML = '';
+            
+            if (data.length === 0) {
+                resultsContainer.innerHTML = '<div class="no-results">Ничего не найдено в базе данных.</div>';
+                return;
+            }
+            
+            data.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'law-card';
+                card.innerHTML = `
+                    <div class="law-title">${item.law_name}</div>
+                    <div class="article-num">${item.article_num}</div>
+                    <div class="law-text">${item.text_content}</div>
+                `;
+                resultsContainer.appendChild(card);
+            });
+        } catch (err) {
+            console.error("Ошибка поиска:", err);
+        }
+    });
+</script>
+
+</body>
+</html>
