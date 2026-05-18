@@ -7,6 +7,8 @@ app = Flask(__name__)
 
 def parse_and_save_to_db():
     db_path = "laws_database.db"
+    if os.path.exists(db_path):
+        os.remove(db_path)
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
     cursor.execute("""
@@ -17,11 +19,6 @@ def parse_and_save_to_db():
         text_content TEXT
     )
     """)
-    cursor.execute("SELECT COUNT(*) FROM laws")
-    count = cursor.fetchone()[0]
-    if count > 10:
-        connection.close()
-        return
     files_to_parse = [
         ("ecocode.txt", "Экологический кодекс РК"),
         ("ecocode (1).txt", "Экологический кодекс РК (Часть 2)"),
@@ -31,6 +28,7 @@ def parse_and_save_to_db():
         ("sanpin2.txt", "Санитарные правила и нормы (Часть 2)"),
         ("atom.txt", "Закон об использовании атомной энергии")
     ]
+    seen = set()
     total = 0
     for file_name, law_name in files_to_parse:
         if not os.path.exists(file_name):
@@ -46,8 +44,14 @@ def parse_and_save_to_db():
             article_num = lines[0].strip()[:120]
             text_content = "\n".join(lines[1:]).strip()
             if len(text_content) > 10:
-                cursor.execute("INSERT INTO laws (law_name, article_num, text_content) VALUES (?, ?, ?)",
-                    (law_name, article_num, text_content))
+                fingerprint = text_content[:200]
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                cursor.execute(
+                    "INSERT INTO laws (law_name, article_num, text_content) VALUES (?, ?, ?)",
+                    (law_name, article_num, text_content)
+                )
                 total += 1
     connection.commit()
     connection.close()
@@ -61,16 +65,13 @@ def search_laws_in_db(query):
     cursor.execute("SELECT law_name, article_num, text_content FROM laws")
     rows = cursor.fetchall()
     connection.close()
-    
     query_lower = query.lower()
     words = query_lower.split()
     results = []
-    
     for row in rows:
         law_name, article_num, text_content = row[0], row[1], row[2]
         text_lower = text_content.lower()
         name_lower = law_name.lower()
-        
         if all(w in text_lower or w in name_lower for w in words):
             score = text_lower.count(query_lower)
             if score > 0:
@@ -80,7 +81,6 @@ def search_laws_in_db(query):
                     "text_content": text_content,
                     "score": score
                 })
-    
     results.sort(key=lambda x: x["score"], reverse=True)
     return results[:20]
 
