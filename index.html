@@ -42,79 +42,114 @@
             padding: 20px;
             margin-bottom: 15px;
             border-radius: 4px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         .law-title {
             font-weight: bold;
             color: #4fc1ff;
             margin-bottom: 5px;
-            font-size: 18px;
+            font-size: 16px;
         }
         .article-num {
             color: #ce9178;
-            font-size: 14px;
-            margin-bottom: 12px;
+            font-size: 13px;
+            margin-bottom: 10px;
         }
         .law-text {
             line-height: 1.6;
             color: #d4d4d4;
+            font-size: 14px;
+        }
+        .read-more {
+            background: none;
+            border: 1px solid #007acc;
+            color: #007acc;
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 8px;
+            font-size: 13px;
+            display: block;
+        }
+        .read-more:hover {
+            background-color: #007acc;
+            color: white;
         }
         .no-results {
             text-align: center;
             color: #888;
             margin-top: 20px;
         }
+        .count {
+            color: #888;
+            font-size: 13px;
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
-
 <div class="container">
     <h1>Справочник Законов РК 🇰🇿</h1>
-    <input type="text" id="searchInput" class="search-box" placeholder="Начните вводить слово для поиска (например: отходы, работа, ПДД)..." autocomplete="off">
-    
+    <input type="text" id="searchInput" class="search-box" placeholder="Введите слово для поиска..." autocomplete="off">
+    <div id="count"></div>
     <div id="results">
-        <div class="no-results">Введите поисковый запрос, чтобы увидеть статьи...</div>
+        <div class="no-results">Введите поисковый запрос...</div>
     </div>
 </div>
 
 <script>
     const searchInput = document.getElementById('searchInput');
     const resultsContainer = document.getElementById('results');
+    const countEl = document.getElementById('count');
+    const texts = {};
 
     searchInput.addEventListener('input', async (e) => {
         const query = e.target.value.trim();
-        
         if (query.length < 2) {
             resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
+            countEl.innerHTML = '';
             return;
         }
-
         try {
             const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
             const data = await response.json();
-            
             resultsContainer.innerHTML = '';
-            
             if (data.length === 0) {
-                resultsContainer.innerHTML = '<div class="no-results">Ничего не найдено в базе данных.</div>';
+                countEl.innerHTML = '';
+                resultsContainer.innerHTML = '<div class="no-results">Ничего не найдено.</div>';
                 return;
             }
-            
-            data.forEach(item => {
+            countEl.innerHTML = `Найдено: ${data.length} статей`;
+            data.forEach((item, index) => {
+                texts[index] = item.text_content;
+                const preview = item.text_content.length > 80
+                    ? item.text_content.substring(0, 80) + '...'
+                    : item.text_content;
                 const card = document.createElement('div');
                 card.className = 'law-card';
                 card.innerHTML = `
                     <div class="law-title">${item.law_name}</div>
                     <div class="article-num">${item.article_num}</div>
-                    <div class="law-text">${item.text_content}</div>
+                    <div class="law-text" id="text-${index}">${preview}</div>
+                    ${item.text_content.length > 80 ? `<button class="read-more" id="btn-${index}" onclick="toggleText(${index})">Читать полностью</button>` : ''}
                 `;
                 resultsContainer.appendChild(card);
             });
         } catch (err) {
-            console.error("Ошибка поиска:", err);
+            console.error("Ошибка:", err);
         }
     });
-</script>
 
+    function toggleText(index) {
+        const el = document.getElementById('text-' + index);
+        const btn = document.getElementById('btn-' + index);
+        if (btn.innerText === 'Читать полностью') {
+            el.innerText = texts[index];
+            btn.innerText = 'Свернуть';
+        } else {
+            el.innerText = texts[index].substring(0, 80) + '...';
+            btn.innerText = 'Читать полностью';
+        }
+    }
+</script>
 </body>
 </html>
