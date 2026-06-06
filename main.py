@@ -1,12 +1,26 @@
 import os
 import sqlite3
 import json
+import urllib.request
 from flask import Flask, render_template_string, request, jsonify, Response, send_file
 
 app = Flask(__name__)
 
+DB_PATH = "laws_database.db"
+DB_URL = "https://github.com/marat1375-design/law-app/raw/main/laws_database.db"
+
+def download_db():
+    if not os.path.exists(DB_PATH):
+        print("База не найдена — скачиваем с GitHub...")
+        urllib.request.urlretrieve(DB_URL, DB_PATH)
+        print(f"База скачана! Размер: {os.path.getsize(DB_PATH)} байт")
+    else:
+        print(f"База уже есть. Размер: {os.path.getsize(DB_PATH)} байт")
+
+download_db()
+
 def search_laws_in_db(query):
-    connection = sqlite3.connect("laws_database.db")
+    connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
     query_lower = query.lower()
     words = query_lower.split()
