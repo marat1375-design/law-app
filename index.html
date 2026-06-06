@@ -115,6 +115,14 @@
         );
     }
 
+    function getSnippet(text, query, len) {
+        const idx = text.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) return text.substring(0, len) + '...';
+        const start = Math.max(0, idx - 100);
+        const end = Math.min(text.length, idx + len);
+        return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
+    }
+
     async function runSearch(query) {
         const filter = filterSelect.value;
         if (query.length < 2) {
@@ -138,15 +146,7 @@
                     ? item.text_content.substring(0, MAX_LEN) + '...'
                     : item.text_content;
                 texts[index] = full;
-                const idx = full.toLowerCase().indexOf(query.toLowerCase());
-                let preview;
-                if (idx === -1) {
-                    preview = full.substring(0, PREVIEW_LEN) + '...';
-                } else {
-                    const start = Math.max(0, idx - 100);
-                    const end = Math.min(full.length, idx + PREVIEW_LEN);
-                    preview = (start > 0 ? '...' : '') + full.substring(start, end) + (end < full.length ? '...' : '');
-                }
+                const preview = getSnippet(full, query, PREVIEW_LEN);
                 const card = document.createElement('div');
                 card.className = 'law-card';
                 card.innerHTML = `
@@ -154,7 +154,7 @@
                     <div class="article-num">${item.article_num}</div>
                     <div class="law-text" id="text-${index}">${highlight(preview, query)}</div>
                     <div class="btn-row">
-                        ${full.length > PREVIEW_LEN ? `<button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${query.replace(/'/g, "\\'")}')">Читать полностью</button>` : ''}
+                        <button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${query.replace(/'/g, "\\'")}')">Читать полностью</button>
                         <button class="copy-btn" id="copy-${index}" onclick="copyText(${index})">📋 Копировать</button>
                     </div>
                 `;
@@ -174,7 +174,7 @@
             el.innerHTML = highlight(texts[index], query);
             btn.innerText = 'Свернуть';
         } else {
-            el.innerHTML = highlight(texts[index].substring(0, PREVIEW_LEN) + '...', query);
+            el.innerHTML = highlight(getSnippet(texts[index], query, PREVIEW_LEN), query);
             btn.innerText = 'Читать полностью';
         }
     }
