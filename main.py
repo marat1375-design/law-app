@@ -2,7 +2,7 @@ import os
 import sqlite3
 import re
 import json
-from flask import Flask, render_template_string, request, jsonify, Response
+from flask import Flask, render_template_string, request, jsonify, Response, send_file
 from docx import Document
 
 app = Flask(__name__)
@@ -148,6 +148,14 @@ def home():
     with open("index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
     return render_template_string(html_content)
+
+@app.route("/manifest.json")
+def manifest():
+    return send_file("manifest.json", mimetype="application/json")
+
+@app.route("/sw.js")
+def sw():
+    return send_file("sw.js", mimetype="application/javascript")
 
 @app.route("/api/search")
 def search_api():
