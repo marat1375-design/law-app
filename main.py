@@ -124,7 +124,7 @@ def search_laws_in_db(query):
         SELECT law_name, article_num, text_content
         FROM laws
         WHERE {like_clause}
-        LIMIT 20
+        LIMIT 50
     """, params)
 
     rows = cursor.fetchall()
