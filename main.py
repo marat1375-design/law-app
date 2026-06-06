@@ -117,27 +117,35 @@ parse_and_save_to_db()
 def search_laws_in_db(query):
     connection = sqlite3.connect("laws_database.db")
     cursor = connection.cursor()
-    cursor.execute("SELECT law_name, article_num, text_content FROM laws")
-    rows = cursor.fetchall()
-    connection.close()
     query_lower = query.lower()
     words = query_lower.split()
     results = []
+
+    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words])
+    params = [f"%{w}%" for w in words]
+
+    cursor.execute(f"""
+        SELECT law_name, article_num, text_content
+        FROM laws
+        WHERE {like_clause}
+        LIMIT 20
+    """, params)
+
+    rows = cursor.fetchall()
+    connection.close()
+
     for row in rows:
         law_name, article_num, text_content = row[0], row[1], row[2]
-        text_lower = text_content.lower()
-        name_lower = law_name.lower()
-        if all(w in text_lower or w in name_lower for w in words):
-            score = sum(text_lower.count(w) for w in words)
-            if score > 0:
-                results.append({
-                    "law_name": law_name,
-                    "article_num": article_num,
-                    "text_content": text_content,
-                    "score": score
-                })
+        score = sum(text_content.lower().count(w) for w in words)
+        results.append({
+            "law_name": law_name,
+            "article_num": article_num,
+            "text_content": text_content,
+            "score": score
+        })
+
     results.sort(key=lambda x: x["score"], reverse=True)
-    return results[:20]
+    return results
 
 @app.route("/")
 def home():
