@@ -116,33 +116,54 @@ def search_laws_in_db(query):
     query_lower = query.lower()
     words = query_lower.split()
     results = []
+    seen_ids = set()
 
-    # Обрезаем последние 2 буквы для поиска по корню слова
-    words_root = [w[:-2] if len(w) > 4 else w for w in words]
-    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words_root])
-    params = [f"%{w}%" for w in words_root]
+    # Сначала ищем точное совпадение
+    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words])
+    params = [f"%{w}%" for w in words]
     cursor.execute(f"""
-        SELECT law_name, article_num, text_content
+        SELECT rowid, law_name, article_num, text_content
         FROM laws
         WHERE {like_clause}
         LIMIT 50
     """, params)
-
-    rows = cursor.fetchall()
-    connection.close()
-
-    for row in rows:
-        law_name, article_num, text_content = row[0], row[1], row[2]
-        score = sum(text_content.lower().count(w) for w in words)
+    for row in cursor.fetchall():
+        rowid, law_name, article_num, text_content = row
+        score = sum(text_content.lower().count(w) for w in words) * 2  # Вес выше
         results.append({
             "law_name": law_name,
             "article_num": article_num,
             "text_content": text_content,
             "score": score
         })
+        seen_ids.add(rowid)
 
+    # Потом ищем по корню (обрезаем 2 буквы)
+    words_root = [w[:-2] if len(w) > 5 else w for w in words]
+    if words_root != words:
+        like_clause2 = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words_root])
+        params2 = [f"%{w}%" for w in words_root]
+        cursor.execute(f"""
+            SELECT rowid, law_name, article_num, text_content
+            FROM laws
+            WHERE {like_clause2}
+            LIMIT 50
+        """, params2)
+        for row in cursor.fetchall():
+            rowid, law_name, article_num, text_content = row
+            if rowid not in seen_ids:
+                score = sum(text_content.lower().count(w) for w in words_root)
+                results.append({
+                    "law_name": law_name,
+                    "article_num": article_num,
+                    "text_content": text_content,
+                    "score": score
+                })
+                seen_ids.add(rowid)
+
+    connection.close()
     results.sort(key=lambda x: x["score"], reverse=True)
-    return results
+    return results[:50]
 
 @app.route("/")
 def home():
