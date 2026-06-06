@@ -138,9 +138,15 @@
                     ? item.text_content.substring(0, MAX_LEN) + '...'
                     : item.text_content;
                 texts[index] = full;
-                const preview = full.length > PREVIEW_LEN
-                    ? full.substring(0, PREVIEW_LEN) + '...'
-                    : full;
+                const idx = full.toLowerCase().indexOf(query.toLowerCase());
+                let preview;
+                if (idx === -1) {
+                    preview = full.substring(0, PREVIEW_LEN) + '...';
+                } else {
+                    const start = Math.max(0, idx - 100);
+                    const end = Math.min(full.length, idx + PREVIEW_LEN);
+                    preview = (start > 0 ? '...' : '') + full.substring(start, end) + (end < full.length ? '...' : '');
+                }
                 const card = document.createElement('div');
                 card.className = 'law-card';
                 card.innerHTML = `
