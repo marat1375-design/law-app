@@ -117,9 +117,10 @@ def search_laws_in_db(query):
     words = query_lower.split()
     results = []
 
-    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words])
-    params = [f"%{w}%" for w in words]
-
+    # Обрезаем последние 2 буквы для поиска по корню слова
+    words_root = [w[:-2] if len(w) > 4 else w for w in words]
+    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words_root])
+    params = [f"%{w}%" for w in words_root]
     cursor.execute(f"""
         SELECT law_name, article_num, text_content
         FROM laws
