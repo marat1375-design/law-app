@@ -19,7 +19,7 @@
         h1 {
             color: #007acc;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         .search-box {
             width: 100%;
@@ -30,18 +30,30 @@
             background-color: #252526;
             color: white;
             box-sizing: border-box;
-            margin-bottom: 25px;
+            margin-bottom: 10px;
             outline: none;
         }
-        .search-box:focus {
-            border-color: #007acc;
+        .search-box:focus { border-color: #007acc; }
+        .filter-box {
+            width: 100%;
+            padding: 10px;
+            font-size: 15px;
+            border-radius: 8px;
+            border: 2px solid #333;
+            background-color: #252526;
+            color: white;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+            outline: none;
         }
+        .filter-box:focus { border-color: #007acc; }
         .law-card {
             background-color: #2d2d2d;
             border-left: 5px solid #007acc;
             padding: 20px;
             margin-bottom: 15px;
             border-radius: 4px;
+            position: relative;
         }
         .law-title {
             font-weight: bold;
@@ -59,20 +71,33 @@
             color: #d4d4d4;
             font-size: 14px;
         }
-        .read-more {
+        .highlight {
+            background-color: #ffff00;
+            color: #000000;
+            border-radius: 2px;
+            padding: 0 2px;
+        }
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .read-more, .copy-btn {
             background: none;
             border: 1px solid #007acc;
             color: #007acc;
             padding: 5px 12px;
             border-radius: 4px;
             cursor: pointer;
-            margin-top: 8px;
             font-size: 13px;
-            display: block;
         }
-        .read-more:hover {
+        .read-more:hover, .copy-btn:hover {
             background-color: #007acc;
             color: white;
+        }
+        .copy-btn.copied {
+            border-color: #4caf50;
+            color: #4caf50;
         }
         .no-results {
             text-align: center;
@@ -84,12 +109,35 @@
             font-size: 13px;
             margin-bottom: 15px;
         }
+        .history {
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #888;
+        }
+        .history span {
+            cursor: pointer;
+            color: #007acc;
+            margin-right: 8px;
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>Справочник Законов РК 🇰🇿</h1>
     <input type="text" id="searchInput" class="search-box" placeholder="Введите слово для поиска..." autocomplete="off">
+    <div class="history" id="history"></div>
+    <select id="filterSelect" class="filter-box">
+        <option value="">— Все законы —</option>
+        <option value="Экологический кодекс">Экологический кодекс</option>
+        <option value="КоАП">КоАП РК</option>
+        <option value="недрах">О недрах и недропользовании</option>
+        <option value="ДСМ-275">Приказ МЗ РК № ДСМ-275/2020</option>
+        <option value="ДСМ-90">Приказ МЗ РК № ДСМ-90</option>
+        <option value="атомной энергии">Об использовании атомной энергии</option>
+        <option value="Конституция">Конституция РК</option>
+        <option value="Налоговый">Налоговый кодекс</option>
+    </select>
     <div id="count"></div>
     <div id="results">
         <div class="no-results">Введите поисковый запрос...</div>
@@ -98,12 +146,44 @@
 
 <script>
     const searchInput = document.getElementById('searchInput');
+    const filterSelect = document.getElementById('filterSelect');
     const resultsContainer = document.getElementById('results');
     const countEl = document.getElementById('count');
+    const historyEl = document.getElementById('history');
     const texts = {};
+    let searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
 
-    searchInput.addEventListener('input', async (e) => {
-        const query = e.target.value.trim();
+    function updateHistory(query) {
+        if (!searchHistory.includes(query)) {
+            searchHistory.unshift(query);
+            if (searchHistory.length > 5) searchHistory.pop();
+            localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+        }
+        renderHistory();
+    }
+
+    function renderHistory() {
+        if (searchHistory.length === 0) { historyEl.innerHTML = ''; return; }
+        historyEl.innerHTML = '🕐 ' + searchHistory.map(q =>
+            `<span onclick="doSearch('${q}')">${q}</span>`
+        ).join('');
+    }
+
+    function doSearch(query) {
+        searchInput.value = query;
+        runSearch(query);
+    }
+
+    function highlight(text, query) {
+        if (!query) return text;
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return text.replace(new RegExp(escaped, 'gi'), match =>
+            `<span class="highlight">${match}</span>`
+        );
+    }
+
+    async function runSearch(query) {
+        const filter = filterSelect.value;
         if (query.length < 2) {
             resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
             countEl.innerHTML = '';
@@ -111,7 +191,10 @@
         }
         try {
             const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-            const data = await response.json();
+            let data = await response.json();
+            if (filter) {
+                data = data.filter(item => item.law_name.includes(filter));
+            }
             resultsContainer.innerHTML = '';
             if (data.length === 0) {
                 countEl.innerHTML = '';
@@ -129,27 +212,48 @@
                 card.innerHTML = `
                     <div class="law-title">${item.law_name}</div>
                     <div class="article-num">${item.article_num}</div>
-                    <div class="law-text" id="text-${index}">${preview}</div>
-                    ${item.text_content.length > 80 ? `<button class="read-more" id="btn-${index}" onclick="toggleText(${index})">Читать полностью</button>` : ''}
+                    <div class="law-text" id="text-${index}">${highlight(preview, query)}</div>
+                    <div class="btn-row">
+                        ${item.text_content.length > 80 ? `<button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${query.replace(/'/g, "\\'")}')">Читать полностью</button>` : ''}
+                        <button class="copy-btn" id="copy-${index}" onclick="copyText(${index})">📋 Копировать</button>
+                    </div>
                 `;
                 resultsContainer.appendChild(card);
             });
+            updateHistory(query);
         } catch (err) {
             console.error("Ошибка:", err);
         }
-    });
+    }
 
-    function toggleText(index) {
+    searchInput.addEventListener('input', (e) => runSearch(e.target.value.trim()));
+    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim()));
+
+    function toggleText(index, query) {
         const el = document.getElementById('text-' + index);
         const btn = document.getElementById('btn-' + index);
         if (btn.innerText === 'Читать полностью') {
-            el.innerText = texts[index];
+            el.innerHTML = highlight(texts[index], query);
             btn.innerText = 'Свернуть';
         } else {
-            el.innerText = texts[index].substring(0, 80) + '...';
+            el.innerHTML = highlight(texts[index].substring(0, 80) + '...', query);
             btn.innerText = 'Читать полностью';
         }
     }
+
+    function copyText(index) {
+        const btn = document.getElementById('copy-' + index);
+        navigator.clipboard.writeText(texts[index]).then(() => {
+            btn.innerText = '✅ Скопировано';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.innerText = '📋 Копировать';
+                btn.classList.remove('copied');
+            }, 2000);
+        });
+    }
+
+    renderHistory();
 </script>
 </body>
 </html>
