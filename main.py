@@ -64,7 +64,7 @@ def _ai_synonyms(query):
     try:
         client = anthropic.Anthropic()
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=30,
             system=(
                 "Ты — помощник по законодательству РК. "
