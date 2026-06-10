@@ -234,7 +234,7 @@
         }
         if (best === -1) return text.substring(0, len) + (text.length > len ? '...' : '');
         const start = Math.max(0, best - 100);
-        const end = Math.min(text.length, start + len);
+        const end = Math.min(text.length, best + 150);
         return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
     }
 
