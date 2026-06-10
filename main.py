@@ -2,10 +2,8 @@ import os
 import re
 import sqlite3
 import json
-import difflib
 import urllib.request
 import anthropic
-from collections import Counter
 from flask import Flask, render_template_string, request, jsonify, Response, send_file, stream_with_context
 
 app = Flask(__name__)
@@ -61,39 +59,23 @@ setup_fts()
 PER_PAGE = 10
 MAX_RESULTS = 200
 
-_vocab = None
-
-def _build_vocab():
-    global _vocab
-    if _vocab is not None:
-        return _vocab
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    counter = Counter()
-    cur.execute("SELECT text_content FROM laws")
-    for (text,) in cur.fetchall():
-        counter.update(re.findall(r'[а-яёА-ЯЁ]{4,}', text.lower()))
-    conn.close()
-    _vocab = [w for w, c in counter.most_common(10000) if c >= 3]
-    return _vocab
-
-
-def _correct_words(words):
-    vocab = _build_vocab()
-    vocab_set = set(vocab)
-    corrected, changed = [], False
-    for w in words:
-        if len(w) < 4 or w in vocab_set:
-            corrected.append(w)
-            continue
-        candidates = [v for v in vocab if abs(len(v) - len(w)) <= 3]
-        matches = difflib.get_close_matches(w, candidates, n=1, cutoff=0.65)
-        if matches and matches[0] != w:
-            corrected.append(matches[0])
-            changed = True
-        else:
-            corrected.append(w)
-    return corrected, changed
+def _ai_synonyms(query):
+    """Ask AI for synonyms/related legal terms when query finds nothing."""
+    try:
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=30,
+            system=(
+                "Ты — помощник по законодательству РК. "
+                "Дай 2–3 русских синонима или близких юридических термина для слова/фразы. "
+                "Только отдельные существительные через пробел. Без объяснений."
+            ),
+            messages=[{"role": "user", "content": query}]
+        )
+        return msg.content[0].text.strip()
+    except Exception:
+        return None
 
 
 def _score(text, article_num, law_name, words, exact=True):
@@ -230,13 +212,12 @@ def search_api():
     corrected_query = None
 
     if data["total"] == 0:
-        fixed, changed = _correct_words(query.lower().split())
-        if changed:
-            fixed_q = " ".join(fixed)
-            fixed_data = search_laws_in_db(fixed_q, law_filter, page)
-            if fixed_data["total"] > 0:
-                data = fixed_data
-                corrected_query = fixed_q
+        synonyms = _ai_synonyms(query)
+        if synonyms:
+            syn_data = search_laws_in_db(synonyms, law_filter, page)
+            if syn_data["total"] > 0:
+                data = syn_data
+                corrected_query = synonyms
 
     data["corrected_query"] = corrected_query
     return Response(

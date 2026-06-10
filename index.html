@@ -439,7 +439,7 @@
             resultsContainer.innerHTML = '';
 
             if (data.corrected_query) {
-                fuzzyNoteEl.innerHTML = `<div class="fuzzy-note">Не найдено по «<b>${escHtml(query)}</b>» — показаны результаты для «<b>${escHtml(data.corrected_query)}</b>»</div>`;
+                fuzzyNoteEl.innerHTML = `<div class="fuzzy-note">По «<b>${escHtml(query)}</b>» не найдено — ИИ подобрал синонимы: «<b>${escHtml(data.corrected_query)}</b>»</div>`;
             }
             if (!data.items.length) {
                 countEl.innerHTML = '';
