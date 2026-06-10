@@ -49,6 +49,17 @@
         .count { color: #888; font-size: 13px; margin-bottom: 15px; }
         .history { margin-bottom: 10px; font-size: 13px; color: #888; }
         .history span { cursor: pointer; color: #007acc; margin-right: 8px; text-decoration: underline; }
+        .loader {
+            display: flex; align-items: center; justify-content: center;
+            gap: 10px; padding: 30px; color: #888; font-size: 14px;
+        }
+        .loader::before {
+            content: '';
+            width: 20px; height: 20px; border-radius: 50%;
+            border: 2px solid #333; border-top-color: #007acc;
+            animation: spin 0.7s linear infinite; flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -57,23 +68,23 @@
     <input type="text" id="searchInput" class="search-box" placeholder="Введите слово для поиска..." autocomplete="off">
     <div class="history" id="history"></div>
     <select id="filterSelect" class="filter-box">
-        <option value="Водный кодекс">Водный кодекс РК</option>
-<option value="Гражданский кодекс">Гражданский кодекс РК</option>
         <option value="">— Все законы —</option>
+        <option value="Водный кодекс">Водный кодекс РК</option>
+        <option value="Гражданский кодекс">Гражданский кодекс РК</option>
+        <option value="Трудовой кодекс">Трудовой кодекс РК</option>
         <option value="Экологический кодекс">Экологический кодекс</option>
         <option value="КоАП">КоАП РК</option>
+        <option value="Конституция">Конституция РК</option>
         <option value="недрах">О недрах и недропользовании</option>
+        <option value="атомной энергии">Об использовании атомной энергии</option>
         <option value="ДСМ-275">Приказ МЗ РК № ДСМ-275/2020</option>
         <option value="ДСМ-90">Приказ МЗ РК № ДСМ-90</option>
-        <option value="атомной энергии">Об использовании атомной энергии</option>
-        <option value="Конституция">Конституция РК</option>
         <option value="пожарной безопасности">Технический регламент пожарной безопасности</option>
         <option value="гражданской защите">Закон о гражданской защите</option>
         <option value="разрешениях">Закон о разрешениях и уведомлениях</option>
         <option value="опасных грузов">Правила перевозки опасных грузов</option>
         <option value="коммунальными отходами">Правила управления коммунальными отходами</option>
-        <option value="Трудовой кодекс">Трудовой кодекс РК</option>
-<option value="дорожного движения">Правила дорожного движения РК</option>
+        <option value="дорожного движения">Правила дорожного движения РК</option>
     </select>
     <div id="count"></div>
     <div id="results"><div class="no-results">Введите поисковый запрос...</div></div>
@@ -113,8 +124,9 @@
 
     function highlight(text, query) {
         if (!query) return text;
-        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return text.replace(new RegExp(escaped, 'gi'), match =>
+        const words = query.trim().split(/\s+/).filter(Boolean);
+        const pattern = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        return text.replace(new RegExp(pattern, 'gi'), match =>
             `<span class="highlight">${match}</span>`
         );
     }
@@ -134,10 +146,12 @@
             countEl.innerHTML = '';
             return;
         }
+        resultsContainer.innerHTML = '<div class="loader">Поиск...</div>';
+        countEl.innerHTML = '';
         try {
-            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+            const url = `/api/search?q=${encodeURIComponent(query)}${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
+            const response = await fetch(url);
             let data = await response.json();
-            if (filter) data = data.filter(item => item.law_name.includes(filter));
             resultsContainer.innerHTML = '';
             if (!data.length) {
                 countEl.innerHTML = '';
@@ -168,7 +182,13 @@
         } catch (err) { console.error("Ошибка:", err); }
     }
 
-    searchInput.addEventListener('input', e => runSearch(e.target.value.trim()));
+    let debounceTimer;
+    function debounce(fn, delay) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(fn, delay);
+    }
+
+    searchInput.addEventListener('input', e => debounce(() => runSearch(e.target.value.trim()), 300));
     filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim()));
 
     function toggleText(index, query) {

@@ -19,7 +19,7 @@ def download_db():
 
 download_db()
 
-def search_laws_in_db(query):
+def search_laws_in_db(query, law_filter=""):
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
     query_lower = query.lower()
@@ -27,8 +27,15 @@ def search_laws_in_db(query):
     results = []
     seen_ids = set()
 
-    like_clause = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words])
-    params = [f"%{w}%" for w in words]
+    def build_query(word_list):
+        parts = [f"LOWER(text_content) LIKE ?" for _ in word_list]
+        params = [f"%{w}%" for w in word_list]
+        if law_filter:
+            parts.append("LOWER(law_name) LIKE ?")
+            params.append(f"%{law_filter.lower()}%")
+        return " AND ".join(parts), params
+
+    like_clause, params = build_query(words)
     cursor.execute(f"""
         SELECT rowid, law_name, article_num, text_content
         FROM laws
@@ -48,8 +55,7 @@ def search_laws_in_db(query):
 
     words_root = [w[:-2] if len(w) > 5 else w for w in words]
     if words_root != words:
-        like_clause2 = " AND ".join([f"LOWER(text_content) LIKE ?" for w in words_root])
-        params2 = [f"%{w}%" for w in words_root]
+        like_clause2, params2 = build_query(words_root)
         cursor.execute(f"""
             SELECT rowid, law_name, article_num, text_content
             FROM laws
@@ -89,10 +95,11 @@ def sw():
 @app.route("/api/search")
 def search_api():
     query = request.args.get("q", "")
+    law_filter = request.args.get("law", "")
     if not query:
         return jsonify([])
     return Response(
-        json.dumps(search_laws_in_db(query), ensure_ascii=False),
+        json.dumps(search_laws_in_db(query, law_filter), ensure_ascii=False),
         mimetype='application/json; charset=utf-8'
     )
 
