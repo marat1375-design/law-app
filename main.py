@@ -21,12 +21,47 @@ def download_db():
     else:
         print(f"База уже есть. Размер: {os.path.getsize(DB_PATH)} байт")
 
+
+def _stem(w):
+    """First 5–6 chars as morphological stem for Russian."""
+    if len(w) >= 9: return w[:6]
+    if len(w) >= 6: return w[:5]
+    return w
+
+
+_fts_ready = False
+
+def setup_fts():
+    global _fts_ready
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='laws_fts'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE VIRTUAL TABLE laws_fts USING fts5(
+                    law_name, article_num, text_content,
+                    content='laws', content_rowid='rowid',
+                    tokenize='unicode61'
+                )
+            """)
+            cur.execute("INSERT INTO laws_fts(laws_fts) VALUES('rebuild')")
+            conn.commit()
+            print("FTS5 index built")
+        conn.close()
+        _fts_ready = True
+        print("FTS5 ready")
+    except Exception as e:
+        print(f"FTS5 unavailable: {e}")
+
+
 download_db()
+setup_fts()
 
 PER_PAGE = 10
 MAX_RESULTS = 200
 
-_vocab = None  # lazy-built word list for fuzzy correction
+_vocab = None
 
 def _build_vocab():
     global _vocab
@@ -39,12 +74,11 @@ def _build_vocab():
     for (text,) in cur.fetchall():
         counter.update(re.findall(r'[а-яёА-ЯЁ]{4,}', text.lower()))
     conn.close()
-    # top-10000 legal terms that appear ≥3 times
     _vocab = [w for w, c in counter.most_common(10000) if c >= 3]
     return _vocab
 
+
 def _correct_words(words):
-    """Return (corrected_list, was_changed). Corrects only words absent from vocab."""
     vocab = _build_vocab()
     vocab_set = set(vocab)
     corrected, changed = [], False
@@ -52,7 +86,6 @@ def _correct_words(words):
         if len(w) < 4 or w in vocab_set:
             corrected.append(w)
             continue
-        # Compare only against words of similar length (±3) for speed
         candidates = [v for v in vocab if abs(len(v) - len(w)) <= 3]
         matches = difflib.get_close_matches(w, candidates, n=1, cutoff=0.65)
         if matches and matches[0] != w:
@@ -62,15 +95,16 @@ def _correct_words(words):
             corrected.append(w)
     return corrected, changed
 
+
 def _score(text, article_num, law_name, words, exact=True):
     char_count = max(len(text), 1)
-    hits = sum(text.lower().count(w) for w in words)
+    text_lower = text.lower()
+    hits = sum(text_lower.count(_stem(w)) for w in words)
     if hits == 0:
         return 0
-    # BM25-like: длинные релевантные статьи не проигрывают коротким
     k1, b, avgdl = 1.5, 0.75, 5000
     tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl))
-    title = sum(4 for w in words if w in article_num.lower())
+    title = sum(4 for w in words if _stem(w) in article_num.lower())
     law_l = law_name.lower()
     hier = (0.5 if 'конституция' in law_l else
             0.4 if 'кодекс' in law_l else
@@ -79,66 +113,75 @@ def _score(text, article_num, law_name, words, exact=True):
             0.1 if 'приказ' in law_l else 0)
     return (tf + title + hier) * (1 if exact else 0.6)
 
+
 def search_laws_in_db(query, law_filter="", page=1):
-    connection = sqlite3.connect(DB_PATH)
-    cursor = connection.cursor()
-    query_lower = query.lower()
-    words = query_lower.split()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    words = [w for w in query.lower().split() if w]
     results = []
     seen_ids = set()
 
-    def build_query(word_list):
-        parts = [f"LOWER(text_content) LIKE ?" for _ in word_list]
-        params = [f"%{w}%" for w in word_list]
+    law_clause = 'AND LOWER(law_name) LIKE ?' if law_filter else ''
+    law_param = [f'%{law_filter.lower()}%'] if law_filter else []
+
+    rows = []
+
+    if _fts_ready and words:
+        # AND search — all stems must appear
+        fts_and = ' '.join(_stem(w) + '*' for w in words)
+        try:
+            cur.execute(f"""
+                SELECT rowid, law_name, article_num, text_content
+                FROM laws_fts WHERE laws_fts MATCH ?
+                {law_clause} LIMIT {MAX_RESULTS}
+            """, [fts_and] + law_param)
+            rows = cur.fetchall()
+        except Exception as e:
+            print(f"FTS AND error: {e}")
+
+        # OR fallback for multi-word queries
+        if not rows and len(words) > 1:
+            fts_or = ' OR '.join(_stem(w) + '*' for w in words)
+            try:
+                cur.execute(f"""
+                    SELECT rowid, law_name, article_num, text_content
+                    FROM laws_fts WHERE laws_fts MATCH ?
+                    {law_clause} LIMIT {MAX_RESULTS}
+                """, [fts_or] + law_param)
+                rows = cur.fetchall()
+            except Exception as e:
+                print(f"FTS OR error: {e}")
+
+    # LIKE fallback (if FTS unavailable or empty)
+    if not rows and words:
+        stems = [_stem(w) for w in words]
+        parts = [f"LOWER(text_content) LIKE ?" for _ in stems]
+        params = [f"%{s}%" for s in stems] + law_param
         if law_filter:
             parts.append("LOWER(law_name) LIKE ?")
-            params.append(f"%{law_filter.lower()}%")
-        return " AND ".join(parts), params
-
-    like_clause, params = build_query(words)
-    cursor.execute(f"""
-        SELECT rowid, law_name, article_num, text_content
-        FROM laws
-        WHERE {like_clause}
-        LIMIT {MAX_RESULTS}
-    """, params)
-    for row in cursor.fetchall():
-        rowid, law_name, article_num, text_content = row
-        score = _score(text_content, article_num, law_name, words, exact=True)
-        results.append({
-            "law_name": law_name,
-            "article_num": article_num,
-            "text_content": text_content,
-            "score": score
-        })
-        seen_ids.add(rowid)
-
-    words_root = [w[:-2] if len(w) > 5 else w for w in words]
-    if words_root != words:
-        like_clause2, params2 = build_query(words_root)
-        cursor.execute(f"""
+        cur.execute(f"""
             SELECT rowid, law_name, article_num, text_content
-            FROM laws
-            WHERE {like_clause2}
-            LIMIT {MAX_RESULTS}
-        """, params2)
-        for row in cursor.fetchall():
-            rowid, law_name, article_num, text_content = row
-            if rowid not in seen_ids:
-                score = _score(text_content, article_num, law_name, words_root, exact=False)
-                results.append({
-                    "law_name": law_name,
-                    "article_num": article_num,
-                    "text_content": text_content,
-                    "score": score
-                })
-                seen_ids.add(rowid)
+            FROM laws WHERE {' AND '.join(parts)} LIMIT {MAX_RESULTS}
+        """, params)
+        rows = cur.fetchall()
 
-    connection.close()
+    for rowid, law_name, article_num, text_content in rows:
+        if rowid not in seen_ids:
+            score = _score(text_content, article_num, law_name, words)
+            results.append({
+                "law_name": law_name,
+                "article_num": article_num,
+                "text_content": text_content,
+                "score": score
+            })
+            seen_ids.add(rowid)
+
+    conn.close()
     results.sort(key=lambda x: x["score"], reverse=True)
     total = len(results)
     offset = (page - 1) * PER_PAGE
     return {"total": total, "items": results[offset:offset + PER_PAGE]}
+
 
 @app.route("/")
 def home():
@@ -153,6 +196,27 @@ def manifest():
 @app.route("/sw.js")
 def sw():
     return send_file("sw.js", mimetype="application/javascript")
+
+
+@app.route("/api/suggest")
+def suggest_api():
+    q = request.args.get("q", "").strip().lower()
+    if len(q) < 2:
+        return jsonify([])
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT law_name FROM laws
+        WHERE LOWER(law_name) LIKE ?
+        ORDER BY law_name LIMIT 6
+    """, (f"%{q}%",))
+    results = [r[0] for r in cur.fetchall()]
+    conn.close()
+    return Response(
+        json.dumps(results, ensure_ascii=False),
+        mimetype='application/json; charset=utf-8'
+    )
+
 
 @app.route("/api/search")
 def search_api():
@@ -180,6 +244,7 @@ def search_api():
         mimetype='application/json; charset=utf-8'
     )
 
+
 @app.route("/api/reformulate", methods=["POST"])
 def reformulate_api():
     data = request.get_json()
@@ -201,6 +266,7 @@ def reformulate_api():
     )
     keywords = message.content[0].text.strip()
     return jsonify({"keywords": keywords})
+
 
 @app.route("/api/explain", methods=["POST"])
 def explain_api():
@@ -236,6 +302,7 @@ def explain_api():
             yield f"[Ошибка: {e}]"
 
     return Response(stream_with_context(generate()), mimetype="text/plain; charset=utf-8")
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

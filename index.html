@@ -15,14 +15,40 @@
             padding: 20px;
         }
         .container { max-width: 800px; margin: 0 auto; }
-        h1 { color: #007acc; text-align: center; margin-bottom: 20px; }
+        h1 { color: #007acc; text-align: center; margin-bottom: 16px; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tab-btn {
+            background: none; border: 1px solid #444; color: #888;
+            padding: 7px 18px; border-radius: 6px; cursor: pointer; font-size: 13px;
+        }
+        .tab-btn.active { border-color: #007acc; color: #007acc; background: rgba(0,122,204,.12); }
+        .tab-btn:hover:not(.active) { border-color: #666; color: #ccc; }
+
+        /* Autocomplete */
+        .search-wrap { position: relative; margin-bottom: 10px; }
         .search-box {
             width: 100%; padding: 15px; font-size: 18px;
             border-radius: 8px; border: 2px solid #333;
             background-color: #252526; color: white;
-            box-sizing: border-box; margin-bottom: 10px; outline: none;
+            box-sizing: border-box; outline: none;
         }
         .search-box:focus { border-color: #007acc; }
+        .suggest-box {
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+            background: #252526; border: 1px solid #444;
+            border-top: none; border-radius: 0 0 8px 8px;
+            display: none; max-height: 260px; overflow-y: auto;
+        }
+        .suggest-box.open { display: block; }
+        .suggest-item {
+            padding: 10px 15px; cursor: pointer; font-size: 14px; color: #ccc;
+            border-bottom: 1px solid #2d2d2d;
+        }
+        .suggest-item:last-child { border-bottom: none; }
+        .suggest-item:hover { background: #007acc; color: white; }
+
         .filter-box {
             width: 100%; padding: 10px; font-size: 15px;
             border-radius: 8px; border: 2px solid #333;
@@ -45,6 +71,15 @@
         }
         .read-more:hover, .copy-btn:hover { background-color: #007acc; color: white; }
         .copy-btn.copied { border-color: #4caf50; color: #4caf50; }
+
+        /* Bookmark button */
+        .bookmark-btn {
+            background: none; border: 1px solid #555; color: #888;
+            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .bookmark-btn:hover { border-color: #f1c40f; color: #f1c40f; }
+        .bookmark-btn.saved { border-color: #f1c40f; color: #f1c40f; }
+
         .no-results { text-align: center; color: #888; margin-top: 20px; }
         .count { color: #888; font-size: 13px; margin-bottom: 15px; }
         .fuzzy-note {
@@ -109,10 +144,22 @@
             background: linear-gradient(135deg, #6c3483, #9b59b6);
             border: none; color: white;
             padding: 9px 22px; border-radius: 6px; cursor: pointer; font-size: 14px;
-            margin-bottom: 15px; display: block;
+            margin-bottom: 10px; display: inline-block;
         }
         .explain-all-btn:hover { opacity: 0.85; }
         .explain-all-btn:disabled { opacity: 0.55; cursor: default; }
+
+        /* Export button */
+        .export-btn {
+            background: none; border: 1px solid #27ae60; color: #27ae60;
+            padding: 9px 22px; border-radius: 6px; cursor: pointer; font-size: 14px;
+            margin-bottom: 10px; margin-left: 8px; display: inline-block;
+        }
+        .export-btn:hover { background: #27ae60; color: white; }
+
+        /* Bookmarks panel */
+        .bk-empty { text-align: center; color: #888; padding: 40px 0; font-size: 15px; }
+
         #scroll-top {
             position: fixed; bottom: 24px; right: 24px;
             width: 44px; height: 44px; border-radius: 50%;
@@ -128,49 +175,65 @@
 <button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
 <div class="container">
     <h1>Справочник Законов РК 🇰🇿</h1>
-    <input type="text" id="searchInput" class="search-box" placeholder="Слово для поиска или вопрос для AI-поиска..." autocomplete="off">
-    <div class="ai-query-row">
-        <button class="ai-query-btn" id="ai-query-btn" onclick="runAiQuery()">🤖 Найти по смыслу</button>
-        <span class="ai-query-note" id="ai-query-note"></span>
+
+    <div class="tabs">
+        <button class="tab-btn active" id="tab-search" onclick="showTab('search')">🔍 Поиск</button>
+        <button class="tab-btn" id="tab-bookmarks" onclick="showTab('bookmarks')">🔖 Закладки <span id="bk-count"></span></button>
     </div>
-    <div class="history" id="history"></div>
-    <select id="filterSelect" class="filter-box">
-        <option value="">— Все законы —</option>
-        <option value="Водный кодекс">Водный кодекс РК</option>
-        <option value="Гражданский кодекс">Гражданский кодекс РК</option>
-        <option value="Земельный кодекс">Земельный кодекс РК</option>
-        <option value="Трудовой кодекс">Трудовой кодекс РК (ред. 19.05.2026)</option>
-        <option value="Экологический кодекс">Экологический кодекс</option>
-        <option value="КоАП">КоАП РК</option>
-        <option value="Налоговый">Налоговый кодекс РК (2025)</option>
-        <option value="Конституция">Конституция РК (ред. 2026)</option>
-        <option value="недрах">О недрах и недропользовании</option>
-        <option value="атомной энергии">Об использовании атомной энергии</option>
-        <option value="ДСМ-275">Приказ МЗ РК № ДСМ-275/2020</option>
-        <option value="ДСМ-90">Приказ МЗ РК № ДСМ-90</option>
-        <option value="пожарной безопасности">Технический регламент пожарной безопасности</option>
-        <option value="гражданской защите">Закон о гражданской защите</option>
-        <option value="разрешениях">Закон о разрешениях и уведомлениях</option>
-        <option value="опасных грузов">Правила перевозки опасных грузов</option>
-        <option value="коммунальными отходами">Правила управления коммунальными отходами</option>
-        <option value="дорожного движения">Правила дорожного движения РК</option>
-        <option value="ядерных материалов">Правила транспортировки ядерных материалов</option>
-        <option value="СТ РК 1513">СТ РК 1513-2019 Обращение с отходами</option>
-    </select>
-    <div id="count"></div>
-    <div id="fuzzy-note"></div>
-    <div id="ai-actions"></div>
-    <div id="results"><div class="no-results">Введите поисковый запрос...</div></div>
-    <div id="pagination"></div>
+
+    <!-- Search panel -->
+    <div id="search-panel">
+        <div class="search-wrap">
+            <input type="text" id="searchInput" class="search-box" placeholder="Слово для поиска или вопрос для AI-поиска..." autocomplete="off">
+            <div class="suggest-box" id="suggest-box"></div>
+        </div>
+        <div class="ai-query-row">
+            <button class="ai-query-btn" id="ai-query-btn" onclick="runAiQuery()">🤖 Найти по смыслу</button>
+            <span class="ai-query-note" id="ai-query-note"></span>
+        </div>
+        <div class="history" id="history"></div>
+        <select id="filterSelect" class="filter-box">
+            <option value="">— Все законы —</option>
+            <option value="Водный кодекс">Водный кодекс РК</option>
+            <option value="Гражданский кодекс">Гражданский кодекс РК</option>
+            <option value="Земельный кодекс">Земельный кодекс РК</option>
+            <option value="Трудовой кодекс">Трудовой кодекс РК (ред. 19.05.2026)</option>
+            <option value="Экологический кодекс">Экологический кодекс</option>
+            <option value="КоАП">КоАП РК</option>
+            <option value="Налоговый">Налоговый кодекс РК (2025)</option>
+            <option value="Конституция">Конституция РК (ред. 2026)</option>
+            <option value="недрах">О недрах и недропользовании</option>
+            <option value="атомной энергии">Об использовании атомной энергии</option>
+            <option value="ДСМ-275">Приказ МЗ РК № ДСМ-275/2020</option>
+            <option value="ДСМ-90">Приказ МЗ РК № ДСМ-90</option>
+            <option value="пожарной безопасности">Технический регламент пожарной безопасности</option>
+            <option value="гражданской защите">Закон о гражданской защите</option>
+            <option value="разрешениях">Закон о разрешениях и уведомлениях</option>
+            <option value="опасных грузов">Правила перевозки опасных грузов</option>
+            <option value="коммунальными отходами">Правила управления коммунальными отходами</option>
+            <option value="дорожного движения">Правила дорожного движения РК</option>
+            <option value="ядерных материалов">Правила транспортировки ядерных материалов</option>
+            <option value="СТ РК 1513">СТ РК 1513-2019 Обращение с отходами</option>
+        </select>
+        <div id="count"></div>
+        <div id="fuzzy-note"></div>
+        <div id="ai-actions"></div>
+        <div id="results"><div class="no-results">Введите поисковый запрос...</div></div>
+        <div id="pagination"></div>
+    </div>
+
+    <!-- Bookmarks panel -->
+    <div id="bookmarks-panel" style="display:none"></div>
 </div>
 
 <script>
-    const searchInput = document.getElementById('searchInput');
-    const filterSelect = document.getElementById('filterSelect');
+    const searchInput   = document.getElementById('searchInput');
+    const filterSelect  = document.getElementById('filterSelect');
     const resultsContainer = document.getElementById('results');
-    const countEl = document.getElementById('count');
-    const fuzzyNoteEl = document.getElementById('fuzzy-note');
-    const historyEl = document.getElementById('history');
+    const countEl       = document.getElementById('count');
+    const fuzzyNoteEl   = document.getElementById('fuzzy-note');
+    const historyEl     = document.getElementById('history');
+    const suggestBox    = document.getElementById('suggest-box');
     const texts = {};
     let lastResults = [];
     const PREVIEW_LEN = 500;
@@ -179,29 +242,10 @@
     let currentPage = 1;
     let currentTotal = 0;
     let searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
-    const paginationEl = document.getElementById('pagination');
-    const aiActionsEl = document.getElementById('ai-actions');
+    const paginationEl  = document.getElementById('pagination');
+    const aiActionsEl   = document.getElementById('ai-actions');
 
-    function updateHistory(query) {
-        if (!searchHistory.includes(query)) {
-            searchHistory.unshift(query);
-            if (searchHistory.length > 5) searchHistory.pop();
-            localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
-        }
-        renderHistory();
-    }
-
-    function renderHistory() {
-        if (!searchHistory.length) { historyEl.innerHTML = ''; return; }
-        historyEl.innerHTML = '🕐 ' + searchHistory.map(q =>
-            `<span onclick="doSearch('${q.replace(/'/g, "\\'")}')">${q}</span>`
-        ).join('');
-    }
-
-    function doSearch(query) {
-        searchInput.value = query;
-        runSearch(query, 1);
-    }
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
     function escHtml(s) {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -238,13 +282,97 @@
         return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
     }
 
+    // ── History ───────────────────────────────────────────────────────────────
+
+    function updateHistory(query) {
+        if (!searchHistory.includes(query)) {
+            searchHistory.unshift(query);
+            if (searchHistory.length > 5) searchHistory.pop();
+            localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+        }
+        renderHistory();
+    }
+
+    function renderHistory() {
+        if (!searchHistory.length) { historyEl.innerHTML = ''; return; }
+        historyEl.innerHTML = '🕐 ' + searchHistory.map(q =>
+            `<span onclick="doSearch('${q.replace(/'/g, "\\'")}')">${escHtml(q)}</span>`
+        ).join('');
+    }
+
+    function doSearch(query) {
+        searchInput.value = query;
+        runSearch(query, 1);
+    }
+
+    // ── Autocomplete ─────────────────────────────────────────────────────────
+
+    let suggestTimer = null;
+
+    async function fetchSuggestions(q) {
+        if (q.length < 2) { hideSuggestions(); return; }
+        try {
+            const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`);
+            const items = await res.json();
+            if (items.length) showSuggestions(items);
+            else hideSuggestions();
+        } catch { hideSuggestions(); }
+    }
+
+    function showSuggestions(items) {
+        suggestBox.innerHTML = '';
+        items.forEach(name => {
+            const div = document.createElement('div');
+            div.className = 'suggest-item';
+            div.textContent = name;
+            div.addEventListener('mousedown', e => {
+                e.preventDefault();
+                // Set filter to matching option
+                filterSelect.value = '';
+                for (const opt of filterSelect.options) {
+                    if (opt.value && name.toLowerCase().includes(opt.value.toLowerCase())) {
+                        filterSelect.value = opt.value;
+                        break;
+                    }
+                }
+                hideSuggestions();
+                runSearch(searchInput.value.trim(), 1);
+            });
+            suggestBox.appendChild(div);
+        });
+        suggestBox.classList.add('open');
+    }
+
+    function hideSuggestions() {
+        suggestBox.classList.remove('open');
+        suggestBox.innerHTML = '';
+    }
+
+    searchInput.addEventListener('blur', () => setTimeout(hideSuggestions, 200));
+
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    let debounceTimer;
+    searchInput.addEventListener('input', e => {
+        document.getElementById('ai-query-note').textContent = '';
+        const val = e.target.value.trim();
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            runSearch(val, 1);
+            fetchSuggestions(val);
+        }, 300);
+    });
+    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim(), 1));
+
     async function runSearch(query, page = 1) {
         const filter = filterSelect.value;
         aiActionsEl.innerHTML = '';
+        hideSuggestions();
         if (query.length < 2) {
             resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
             countEl.innerHTML = '';
             paginationEl.innerHTML = '';
+            fuzzyNoteEl.innerHTML = '';
             return;
         }
         resultsContainer.innerHTML = '<div class="loader">Поиск...</div>';
@@ -259,6 +387,7 @@
             currentPage = page;
             lastResults = [];
             resultsContainer.innerHTML = '';
+
             if (data.corrected_query) {
                 fuzzyNoteEl.innerHTML = `<div class="fuzzy-note">Не найдено по «<b>${escHtml(query)}</b>» — показаны результаты для «<b>${escHtml(data.corrected_query)}</b>»</div>`;
             }
@@ -267,10 +396,12 @@
                 resultsContainer.innerHTML = '<div class="no-results">Ничего не найдено.</div>';
                 return;
             }
+
             const totalPages = Math.ceil(currentTotal / PER_PAGE);
             const from = (page - 1) * PER_PAGE + 1;
             const to = Math.min(page * PER_PAGE, currentTotal);
             countEl.innerHTML = `Найдено: ${currentTotal} статей — показаны ${from}–${to}`;
+
             const effectiveQuery = data.corrected_query || query;
             data.items.forEach((item, index) => {
                 lastResults[index] = item;
@@ -279,6 +410,7 @@
                     : item.text_content;
                 texts[index] = full;
                 const preview = getSnippet(full, effectiveQuery, PREVIEW_LEN);
+                const saved = isBookmarked(item);
                 const card = document.createElement('div');
                 card.className = 'law-card';
                 card.innerHTML = `
@@ -288,6 +420,7 @@
                     <div class="btn-row">
                         <button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${effectiveQuery.replace(/'/g, "\\'")}')">Читать полностью</button>
                         <button class="copy-btn" id="copy-${index}" onclick="copyText(${index})">📋 Копировать</button>
+                        <button class="bookmark-btn${saved ? ' saved' : ''}" id="bk-${index}" onclick="toggleBookmark(${index})">${saved ? '★ Сохранено' : '🔖 Сохранить'}</button>
                         <button class="explain-btn" id="explain-btn-${index}" onclick="explainArticle(${index})">🤖 Объяснить</button>
                     </div>
                     <div class="ai-explanation" id="explain-${index}">
@@ -297,17 +430,28 @@
                 `;
                 resultsContainer.appendChild(card);
             });
+
             renderPagination(query, page, totalPages);
-            aiActionsEl.innerHTML = '';
+
+            // Action buttons below results
             const allBtn = document.createElement('button');
             allBtn.className = 'explain-all-btn';
             allBtn.id = 'explain-all-btn';
             allBtn.textContent = '🤖 AI-поиск: объяснить все статьи';
             allBtn.onclick = explainAll;
             aiActionsEl.appendChild(allBtn);
+
+            const expBtn = document.createElement('button');
+            expBtn.className = 'export-btn';
+            expBtn.textContent = '⬇ Скачать результаты';
+            expBtn.onclick = exportResults;
+            aiActionsEl.appendChild(expBtn);
+
             updateHistory(query);
         } catch (err) { console.error("Ошибка:", err); }
     }
+
+    // ── Pagination ────────────────────────────────────────────────────────────
 
     function renderPagination(query, page, totalPages) {
         if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
@@ -319,8 +463,7 @@
         prev.onclick = () => { runSearch(query, page - 1); window.scrollTo(0, 0); };
         buttons.push(prev);
 
-        const range = pageRange(page, totalPages);
-        range.forEach(p => {
+        pageRange(page, totalPages).forEach(p => {
             const btn = document.createElement('button');
             btn.className = 'page-btn' + (p === page ? ' active' : '');
             btn.textContent = p;
@@ -343,28 +486,17 @@
     }
 
     function pageRange(current, total) {
-        const delta = 2;
-        const range = [];
+        const delta = 2, range = [];
         for (let i = Math.max(1, current - delta); i <= Math.min(total, current + delta); i++) range.push(i);
         if (range[0] > 1) { range.unshift('…'); range.unshift(1); }
         if (range[range.length - 1] < total) { range.push('…'); range.push(total); }
         return range;
     }
 
-    let debounceTimer;
-    function debounce(fn, delay) {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(fn, delay);
-    }
-
-    searchInput.addEventListener('input', e => {
-        document.getElementById('ai-query-note').textContent = '';
-        debounce(() => runSearch(e.target.value.trim(), 1), 300);
-    });
-    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim(), 1));
+    // ── Card actions ──────────────────────────────────────────────────────────
 
     function toggleText(index, query) {
-        const el = document.getElementById('text-' + index);
+        const el  = document.getElementById('text-' + index);
         const btn = document.getElementById('btn-' + index);
         if (btn.innerText === 'Читать полностью') {
             el.innerHTML = highlight(texts[index], query);
@@ -384,6 +516,117 @@
         });
     }
 
+    // ── Bookmarks ─────────────────────────────────────────────────────────────
+
+    function bkId(item) {
+        return (item.law_name + '§' + item.article_num).replace(/\s+/g, '_');
+    }
+
+    function getBookmarks() {
+        return JSON.parse(localStorage.getItem('lawBookmarks') || '[]');
+    }
+
+    function isBookmarked(item) {
+        return getBookmarks().some(b => b.id === bkId(item));
+    }
+
+    function toggleBookmark(index) {
+        const item = lastResults[index];
+        if (!item) return;
+        const id = bkId(item);
+        let bks = getBookmarks();
+        const btn = document.getElementById('bk-' + index);
+        if (bks.some(b => b.id === id)) {
+            bks = bks.filter(b => b.id !== id);
+            btn.textContent = '🔖 Сохранить';
+            btn.classList.remove('saved');
+        } else {
+            bks.unshift({ id, law_name: item.law_name, article_num: item.article_num, text_content: item.text_content });
+            if (bks.length > 200) bks.pop();
+            btn.textContent = '★ Сохранено';
+            btn.classList.add('saved');
+        }
+        localStorage.setItem('lawBookmarks', JSON.stringify(bks));
+        updateBkCount();
+    }
+
+    function updateBkCount() {
+        const n = getBookmarks().length;
+        document.getElementById('bk-count').textContent = n ? `(${n})` : '';
+    }
+
+    function removeBookmark(id) {
+        let bks = getBookmarks().filter(b => b.id !== id);
+        localStorage.setItem('lawBookmarks', JSON.stringify(bks));
+        updateBkCount();
+        renderBookmarks();
+    }
+
+    function renderBookmarks() {
+        const panel = document.getElementById('bookmarks-panel');
+        const bks = getBookmarks();
+        if (!bks.length) {
+            panel.innerHTML = '<div class="bk-empty">Нет сохранённых статей.<br><br>Нажмите 🔖 Сохранить на любой карточке.</div>';
+            return;
+        }
+        panel.innerHTML = `<div class="count">Сохранено: ${bks.length} статей</div>`;
+        bks.forEach(item => {
+            const preview = item.text_content.substring(0, 300);
+            const card = document.createElement('div');
+            card.className = 'law-card';
+            card.innerHTML = `
+                <div class="law-title">${escHtml(item.law_name)}</div>
+                <div class="article-num">${escHtml(item.article_num)}</div>
+                <div class="law-text">${escHtml(preview)}${item.text_content.length > 300 ? '...' : ''}</div>
+                <div class="btn-row">
+                    <button class="bookmark-btn saved" onclick="removeBookmark('${item.id.replace(/'/g, "\\'")}')">★ Удалить</button>
+                    <button class="copy-btn" onclick="copyBk(this, '${item.id.replace(/'/g, "\\'")}')">📋 Копировать</button>
+                </div>
+            `;
+            panel.appendChild(card);
+        });
+    }
+
+    function copyBk(btn, id) {
+        const item = getBookmarks().find(b => b.id === id);
+        if (!item) return;
+        navigator.clipboard.writeText(item.text_content).then(() => {
+            btn.innerText = '✅ Скопировано';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.innerText = '📋 Копировать'; btn.classList.remove('copied'); }, 2000);
+        });
+    }
+
+    // ── Tabs ──────────────────────────────────────────────────────────────────
+
+    function showTab(tab) {
+        document.getElementById('tab-search').classList.toggle('active', tab === 'search');
+        document.getElementById('tab-bookmarks').classList.toggle('active', tab === 'bookmarks');
+        document.getElementById('search-panel').style.display = tab === 'search' ? '' : 'none';
+        document.getElementById('bookmarks-panel').style.display = tab === 'bookmarks' ? '' : 'none';
+        if (tab === 'bookmarks') renderBookmarks();
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    function exportResults() {
+        if (!lastResults.length) return;
+        let txt = `Справочник Законов РК — результаты поиска\n${'='.repeat(60)}\n\n`;
+        lastResults.forEach((item, i) => {
+            txt += `${i + 1}. ${item.law_name}\n   ${item.article_num}\n\n`;
+            txt += item.text_content + '\n\n' + '-'.repeat(60) + '\n\n';
+        });
+        const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = `законы_рк_${new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // ── AI explain ────────────────────────────────────────────────────────────
+
     async function fetchExplanation(index) {
         const btn = document.getElementById(`explain-btn-${index}`);
         const explanationEl = document.getElementById(`explain-${index}`);
@@ -400,11 +643,7 @@
             const response = await fetch('/api/explain', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text: item.text_content,
-                    law_name: item.law_name,
-                    article_num: item.article_num
-                })
+                body: JSON.stringify({ text: item.text_content, law_name: item.law_name, article_num: item.article_num })
             });
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -436,7 +675,7 @@
     async function runAiQuery() {
         const question = searchInput.value.trim();
         if (!question) return;
-        const btn = document.getElementById('ai-query-btn');
+        const btn  = document.getElementById('ai-query-btn');
         const note = document.getElementById('ai-query-note');
         btn.disabled = true;
         btn.textContent = '⏳ Анализирую...';
@@ -466,20 +705,18 @@
         const anyVisible = lastResults.some((_, i) =>
             document.getElementById(`explain-${i}`)?.classList.contains('visible')
         );
-
         if (anyVisible) {
             lastResults.forEach((_, i) => {
                 const el = document.getElementById(`explain-${i}`);
-                const cardBtn = document.getElementById(`explain-btn-${i}`);
-                if (el?.classList.contains('visible') && !cardBtn?.classList.contains('loading')) {
+                const b  = document.getElementById(`explain-btn-${i}`);
+                if (el?.classList.contains('visible') && !b?.classList.contains('loading')) {
                     el.classList.remove('visible');
-                    cardBtn.textContent = '🤖 Объяснить';
+                    b.textContent = '🤖 Объяснить';
                 }
             });
             allBtn.textContent = '🤖 AI-поиск: объяснить все статьи';
             return;
         }
-
         allBtn.textContent = '⏳ Загружаю все...';
         allBtn.disabled = true;
         await Promise.all(lastResults.map((_, i) => fetchExplanation(i)));
@@ -487,12 +724,14 @@
         allBtn.disabled = false;
     }
 
+    // ── Init ──────────────────────────────────────────────────────────────────
+
     window.addEventListener('scroll', () => {
-        document.getElementById('scroll-top').style.display =
-            window.scrollY > 300 ? 'block' : 'none';
+        document.getElementById('scroll-top').style.display = window.scrollY > 300 ? 'block' : 'none';
     });
 
     renderHistory();
+    updateBkCount();
 </script>
 
 <script>
