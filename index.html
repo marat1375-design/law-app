@@ -72,6 +72,22 @@
         .page-btn:hover { border-color: #007acc; color: #007acc; }
         .page-btn.active { border-color: #007acc; background-color: #007acc; color: white; cursor: default; }
         .page-btn:disabled { opacity: 0.3; cursor: default; }
+        .explain-btn {
+            background: none; border: 1px solid #9b59b6; color: #9b59b6;
+            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+        }
+        .explain-btn:hover { background-color: #9b59b6; color: white; }
+        .explain-btn.loading { opacity: 0.7; cursor: default; pointer-events: none; }
+        .ai-explanation {
+            display: none; margin-top: 12px; padding: 12px;
+            background-color: #1a1a2e; border-left: 3px solid #9b59b6;
+            border-radius: 4px; font-size: 13px; line-height: 1.6; color: #d4d4d4;
+        }
+        .ai-explanation.visible { display: block; }
+        .ai-label {
+            color: #9b59b6; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 6px; font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -110,6 +126,7 @@
     const countEl = document.getElementById('count');
     const historyEl = document.getElementById('history');
     const texts = {};
+    let lastResults = [];
     const PREVIEW_LEN = 500;
     const MAX_LEN = 8000;
     const PER_PAGE = 10;
@@ -173,6 +190,7 @@
             const data = await response.json();
             currentTotal = data.total;
             currentPage = page;
+            lastResults = [];
             resultsContainer.innerHTML = '';
             if (!data.items.length) {
                 countEl.innerHTML = '';
@@ -184,6 +202,7 @@
             const to = Math.min(page * PER_PAGE, currentTotal);
             countEl.innerHTML = `Найдено: ${currentTotal} статей — показаны ${from}–${to}`;
             data.items.forEach((item, index) => {
+                lastResults[index] = item;
                 const full = item.text_content.length > MAX_LEN
                     ? item.text_content.substring(0, MAX_LEN) + '...'
                     : item.text_content;
@@ -198,6 +217,11 @@
                     <div class="btn-row">
                         <button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${query.replace(/'/g, "\\'")}')">Читать полностью</button>
                         <button class="copy-btn" id="copy-${index}" onclick="copyText(${index})">📋 Копировать</button>
+                        <button class="explain-btn" id="explain-btn-${index}" onclick="explainArticle(${index})">🤖 Объяснить</button>
+                    </div>
+                    <div class="ai-explanation" id="explain-${index}">
+                        <div class="ai-label">Объяснение ИИ</div>
+                        <div id="explain-text-${index}"></div>
                     </div>
                 `;
                 resultsContainer.appendChild(card);
@@ -277,6 +301,51 @@
             btn.classList.add('copied');
             setTimeout(() => { btn.innerText = '📋 Копировать'; btn.classList.remove('copied'); }, 2000);
         });
+    }
+
+    async function explainArticle(index) {
+        const btn = document.getElementById(`explain-btn-${index}`);
+        const explanationEl = document.getElementById(`explain-${index}`);
+        const textEl = document.getElementById(`explain-text-${index}`);
+
+        if (explanationEl.classList.contains('visible') && !btn.classList.contains('loading')) {
+            explanationEl.classList.remove('visible');
+            btn.textContent = '🤖 Объяснить';
+            return;
+        }
+
+        const item = lastResults[index];
+        if (!item) return;
+
+        btn.classList.add('loading');
+        btn.textContent = '⏳ Загрузка...';
+        textEl.textContent = '';
+        explanationEl.classList.add('visible');
+
+        try {
+            const response = await fetch('/api/explain', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: item.text_content,
+                    law_name: item.law_name,
+                    article_num: item.article_num
+                })
+            });
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                textEl.textContent += decoder.decode(value, { stream: true });
+            }
+            btn.textContent = '🤖 Скрыть';
+        } catch (err) {
+            textEl.textContent = 'Ошибка при загрузке объяснения.';
+            btn.textContent = '🤖 Объяснить';
+        } finally {
+            btn.classList.remove('loading');
+        }
     }
 
     renderHistory();

@@ -2,7 +2,8 @@ import os
 import sqlite3
 import json
 import urllib.request
-from flask import Flask, render_template_string, request, jsonify, Response, send_file
+import anthropic
+from flask import Flask, render_template_string, request, jsonify, Response, send_file, stream_with_context
 
 app = Flask(__name__)
 
@@ -108,6 +109,41 @@ def search_api():
         json.dumps(search_laws_in_db(query, law_filter, page), ensure_ascii=False),
         mimetype='application/json; charset=utf-8'
     )
+
+@app.route("/api/explain", methods=["POST"])
+def explain_api():
+    data = request.get_json()
+    article_text = data.get("text", "")
+    law_name = data.get("law_name", "")
+    article_num = data.get("article_num", "")
+    if not article_text:
+        return jsonify({"error": "Текст не передан"}), 400
+
+    client = anthropic.Anthropic()
+    header = f"{law_name}, {article_num}\n\n" if law_name or article_num else ""
+
+    def generate():
+        try:
+            with client.messages.stream(
+                model="claude-opus-4-8",
+                max_tokens=512,
+                system=(
+                    "Ты — помощник по казахстанскому законодательству. "
+                    "Объясняй статьи простым и понятным языком. "
+                    "Отвечай только на русском языке. "
+                    "Будь кратким — 3–5 предложений."
+                ),
+                messages=[{
+                    "role": "user",
+                    "content": f"Объясни простыми словами:\n\n{header}{article_text[:4000]}"
+                }]
+            ) as stream:
+                for text in stream.text_stream:
+                    yield text
+        except Exception as e:
+            yield f"[Ошибка: {e}]"
+
+    return Response(stream_with_context(generate()), mimetype="text/plain; charset=utf-8")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
