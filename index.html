@@ -88,6 +88,17 @@
             color: #9b59b6; font-size: 11px; text-transform: uppercase;
             letter-spacing: 1px; margin-bottom: 6px; font-weight: bold;
         }
+        .ai-query-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        }
+        .ai-query-btn {
+            background: none; border: 1px solid #9b59b6; color: #9b59b6;
+            padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .ai-query-btn:hover { background-color: #9b59b6; color: white; }
+        .ai-query-btn:disabled { opacity: 0.6; cursor: default; }
+        .ai-query-note { color: #888; font-size: 12px; }
         .explain-all-btn {
             background: linear-gradient(135deg, #6c3483, #9b59b6);
             border: none; color: white;
@@ -101,7 +112,11 @@
 <body>
 <div class="container">
     <h1>Справочник Законов РК 🇰🇿</h1>
-    <input type="text" id="searchInput" class="search-box" placeholder="Введите слово для поиска..." autocomplete="off">
+    <input type="text" id="searchInput" class="search-box" placeholder="Слово для поиска или вопрос для AI-поиска..." autocomplete="off">
+    <div class="ai-query-row">
+        <button class="ai-query-btn" id="ai-query-btn" onclick="runAiQuery()">🤖 Найти по смыслу</button>
+        <span class="ai-query-note" id="ai-query-note"></span>
+    </div>
     <div class="history" id="history"></div>
     <select id="filterSelect" class="filter-box">
         <option value="">— Все законы —</option>
@@ -296,7 +311,10 @@
         debounceTimer = setTimeout(fn, delay);
     }
 
-    searchInput.addEventListener('input', e => debounce(() => runSearch(e.target.value.trim(), 1), 300));
+    searchInput.addEventListener('input', e => {
+        document.getElementById('ai-query-note').textContent = '';
+        debounce(() => runSearch(e.target.value.trim(), 1), 300);
+    });
     filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim(), 1));
 
     function toggleText(index, query) {
@@ -367,6 +385,34 @@
             return;
         }
         fetchExplanation(index);
+    }
+
+    async function runAiQuery() {
+        const question = searchInput.value.trim();
+        if (!question) return;
+        const btn = document.getElementById('ai-query-btn');
+        const note = document.getElementById('ai-query-note');
+        btn.disabled = true;
+        btn.textContent = '⏳ Анализирую...';
+        note.textContent = '';
+        try {
+            const res = await fetch('/api/reformulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+            const data = await res.json();
+            if (data.keywords) {
+                note.textContent = `🤖 «${question}» → ${data.keywords}`;
+                searchInput.value = data.keywords;
+                runSearch(data.keywords, 1);
+            }
+        } catch (err) {
+            note.textContent = 'Ошибка. Попробуйте снова.';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🤖 Найти по смыслу';
+        }
     }
 
     async function explainAll() {

@@ -110,6 +110,28 @@ def search_api():
         mimetype='application/json; charset=utf-8'
     )
 
+@app.route("/api/reformulate", methods=["POST"])
+def reformulate_api():
+    data = request.get_json()
+    question = data.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "Вопрос не передан"}), 400
+
+    client = anthropic.Anthropic()
+    message = client.messages.create(
+        model="claude-opus-4-8",
+        max_tokens=64,
+        system=(
+            "Ты — помощник по казахстанскому законодательству. "
+            "Из вопроса пользователя извлеки 2–4 ключевых юридических слова на русском языке "
+            "для поиска в базе законов РК. "
+            "Верни только слова через пробел, без знаков препинания, без объяснений."
+        ),
+        messages=[{"role": "user", "content": question}]
+    )
+    keywords = message.content[0].text.strip()
+    return jsonify({"keywords": keywords})
+
 @app.route("/api/explain", methods=["POST"])
 def explain_api():
     data = request.get_json()
