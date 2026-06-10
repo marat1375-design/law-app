@@ -253,6 +253,7 @@
                 resultsContainer.appendChild(card);
             });
             renderPagination(query, page, totalPages);
+            aiActionsEl.innerHTML = '';
             const allBtn = document.createElement('button');
             allBtn.className = 'explain-all-btn';
             allBtn.id = 'explain-all-btn';
