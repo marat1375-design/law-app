@@ -735,13 +735,27 @@
     async function runAiQuery() {
         const question = searchInput.value.trim();
         if (!question) return;
-        const btn  = document.getElementById('ai-query-btn');
-        const note = document.getElementById('ai-query-note');
+        const btn    = document.getElementById('ai-query-btn');
+        const note   = document.getElementById('ai-query-note');
+        const filter = filterSelect.value;
         btn.disabled = true;
-        btn.textContent = '⏳ Анализирую...';
+        btn.textContent = '⏳ Проверяю...';
         note.textContent = '';
         try {
-            const res = await fetch('/api/reformulate', {
+            // Step 1: try original query — only reformulate if nothing found
+            const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
+            const checkRes  = await fetch(checkUrl);
+            const checkData = await checkRes.json();
+
+            if (checkData.total > 0) {
+                note.textContent = `Найдено ${checkData.total} статей — запрос не изменён`;
+                runSearch(question, 1);
+                return;
+            }
+
+            // Step 2: zero results — ask AI to extract keywords
+            btn.textContent = '⏳ Анализирую...';
+            const res  = await fetch('/api/reformulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question })
