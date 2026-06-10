@@ -207,11 +207,20 @@
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    function stemOf(w) {
+        return w.length >= 9 ? w.slice(0, 6) :
+               w.length >= 6 ? w.slice(0, 5) : w;
+    }
+
     function highlight(text, query) {
         const safe = escHtml(text);
         if (!query) return safe;
         const words = query.trim().split(/\s+/).filter(Boolean);
-        const pattern = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        const pattern = words.map(w => {
+            const stem = stemOf(w);
+            const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return escaped + (w.length >= 4 ? '[а-яёА-ЯЁa-zA-Z]*' : '');
+        }).join('|');
         return safe.replace(new RegExp(pattern, 'gi'), m => `<span class="highlight">${m}</span>`);
     }
 
@@ -220,7 +229,7 @@
         const lower = text.toLowerCase();
         let best = -1;
         for (const w of words) {
-            const idx = lower.indexOf(w.toLowerCase());
+            const idx = lower.indexOf(stemOf(w).toLowerCase());
             if (idx !== -1 && (best === -1 || idx < best)) best = idx;
         }
         if (best === -1) return text.substring(0, len) + (text.length > len ? '...' : '');
