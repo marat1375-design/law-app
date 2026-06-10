@@ -47,7 +47,7 @@
             border-bottom: 1px solid #2d2d2d;
         }
         .suggest-item:last-child { border-bottom: none; }
-        .suggest-item:hover { background: #007acc; color: white; }
+        .suggest-item:hover, .suggest-item.active { background: #007acc; color: white; }
 
         .filter-box {
             width: 100%; padding: 10px; font-size: 15px;
@@ -359,7 +359,10 @@
         } catch { hideSuggestions(); }
     }
 
+    let activeSuggestIdx = -1;
+
     function showSuggestions(items) {
+        activeSuggestIdx = -1;
         suggestBox.innerHTML = '';
         items.forEach(name => {
             const div = document.createElement('div');
@@ -384,11 +387,63 @@
     }
 
     function hideSuggestions() {
+        activeSuggestIdx = -1;
         suggestBox.classList.remove('open');
         suggestBox.innerHTML = '';
     }
 
     searchInput.addEventListener('blur', () => setTimeout(hideSuggestions, 200));
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+    // '/' — focus search from anywhere on the page
+    document.addEventListener('keydown', e => {
+        if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
+            e.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+        }
+    });
+
+    // Arrow keys, Enter, Escape inside the search input
+    searchInput.addEventListener('keydown', e => {
+        const items = suggestBox.querySelectorAll('.suggest-item');
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeSuggestIdx = Math.min(activeSuggestIdx + 1, items.length - 1);
+            items.forEach((el, i) => el.classList.toggle('active', i === activeSuggestIdx));
+            if (items[activeSuggestIdx]) items[activeSuggestIdx].scrollIntoView({ block: 'nearest' });
+
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeSuggestIdx = Math.max(activeSuggestIdx - 1, -1);
+            items.forEach((el, i) => el.classList.toggle('active', i === activeSuggestIdx));
+            if (activeSuggestIdx >= 0 && items[activeSuggestIdx]) items[activeSuggestIdx].scrollIntoView({ block: 'nearest' });
+
+        } else if (e.key === 'Enter') {
+            if (activeSuggestIdx >= 0 && items[activeSuggestIdx]) {
+                items[activeSuggestIdx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            } else {
+                clearTimeout(debounceTimer);
+                runSearch(searchInput.value.trim(), 1);
+                hideSuggestions();
+            }
+
+        } else if (e.key === 'Escape') {
+            if (suggestBox.classList.contains('open')) {
+                hideSuggestions();
+            } else {
+                searchInput.value = '';
+                resultsContainer.innerHTML = '<div class="no-results">Введите поисковый запрос...</div>';
+                countEl.innerHTML = '';
+                paginationEl.innerHTML = '';
+                fuzzyNoteEl.innerHTML = '';
+                aiActionsEl.innerHTML = '';
+                history.replaceState({}, '', location.pathname);
+            }
+        }
+    });
 
     // ── Search ────────────────────────────────────────────────────────────────
 
