@@ -195,10 +195,16 @@
     }
 
     function getSnippet(text, query, len) {
-        const idx = text.toLowerCase().indexOf(query.toLowerCase());
-        if (idx === -1) return text.substring(0, len) + '...';
-        const start = Math.max(0, idx - 100);
-        const end = Math.min(text.length, idx + len);
+        const words = query.trim().split(/\s+/).filter(Boolean);
+        const lower = text.toLowerCase();
+        let best = -1;
+        for (const w of words) {
+            const idx = lower.indexOf(w.toLowerCase());
+            if (idx !== -1 && (best === -1 || idx < best)) best = idx;
+        }
+        if (best === -1) return text.substring(0, len) + (text.length > len ? '...' : '');
+        const start = Math.max(0, best - 100);
+        const end = Math.min(text.length, start + len);
         return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
     }
 
