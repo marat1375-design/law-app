@@ -88,6 +88,14 @@
             color: #9b59b6; font-size: 11px; text-transform: uppercase;
             letter-spacing: 1px; margin-bottom: 6px; font-weight: bold;
         }
+        .explain-all-btn {
+            background: linear-gradient(135deg, #6c3483, #9b59b6);
+            border: none; color: white;
+            padding: 9px 22px; border-radius: 6px; cursor: pointer; font-size: 14px;
+            margin-bottom: 15px; display: block;
+        }
+        .explain-all-btn:hover { opacity: 0.85; }
+        .explain-all-btn:disabled { opacity: 0.55; cursor: default; }
     </style>
 </head>
 <body>
@@ -115,6 +123,7 @@
         <option value="дорожного движения">Правила дорожного движения РК</option>
     </select>
     <div id="count"></div>
+    <div id="ai-actions"></div>
     <div id="results"><div class="no-results">Введите поисковый запрос...</div></div>
     <div id="pagination"></div>
 </div>
@@ -134,6 +143,7 @@
     let currentTotal = 0;
     let searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
     const paginationEl = document.getElementById('pagination');
+    const aiActionsEl = document.getElementById('ai-actions');
 
     function updateHistory(query) {
         if (!searchHistory.includes(query)) {
@@ -175,6 +185,7 @@
 
     async function runSearch(query, page = 1) {
         const filter = filterSelect.value;
+        aiActionsEl.innerHTML = '';
         if (query.length < 2) {
             resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
             countEl.innerHTML = '';
@@ -227,6 +238,12 @@
                 resultsContainer.appendChild(card);
             });
             renderPagination(query, page, totalPages);
+            const allBtn = document.createElement('button');
+            allBtn.className = 'explain-all-btn';
+            allBtn.id = 'explain-all-btn';
+            allBtn.textContent = '🤖 AI-поиск: объяснить все статьи';
+            allBtn.onclick = explainAll;
+            aiActionsEl.appendChild(allBtn);
             updateHistory(query);
         } catch (err) { console.error("Ошибка:", err); }
     }
@@ -303,19 +320,12 @@
         });
     }
 
-    async function explainArticle(index) {
+    async function fetchExplanation(index) {
         const btn = document.getElementById(`explain-btn-${index}`);
         const explanationEl = document.getElementById(`explain-${index}`);
         const textEl = document.getElementById(`explain-text-${index}`);
-
-        if (explanationEl.classList.contains('visible') && !btn.classList.contains('loading')) {
-            explanationEl.classList.remove('visible');
-            btn.textContent = '🤖 Объяснить';
-            return;
-        }
-
         const item = lastResults[index];
-        if (!item) return;
+        if (!item || btn.classList.contains('loading')) return;
 
         btn.classList.add('loading');
         btn.textContent = '⏳ Загрузка...';
@@ -346,6 +356,43 @@
         } finally {
             btn.classList.remove('loading');
         }
+    }
+
+    function explainArticle(index) {
+        const btn = document.getElementById(`explain-btn-${index}`);
+        const explanationEl = document.getElementById(`explain-${index}`);
+        if (explanationEl.classList.contains('visible') && !btn.classList.contains('loading')) {
+            explanationEl.classList.remove('visible');
+            btn.textContent = '🤖 Объяснить';
+            return;
+        }
+        fetchExplanation(index);
+    }
+
+    async function explainAll() {
+        const allBtn = document.getElementById('explain-all-btn');
+        const anyVisible = lastResults.some((_, i) =>
+            document.getElementById(`explain-${i}`)?.classList.contains('visible')
+        );
+
+        if (anyVisible) {
+            lastResults.forEach((_, i) => {
+                const el = document.getElementById(`explain-${i}`);
+                const cardBtn = document.getElementById(`explain-btn-${i}`);
+                if (el?.classList.contains('visible') && !cardBtn?.classList.contains('loading')) {
+                    el.classList.remove('visible');
+                    cardBtn.textContent = '🤖 Объяснить';
+                }
+            });
+            allBtn.textContent = '🤖 AI-поиск: объяснить все статьи';
+            return;
+        }
+
+        allBtn.textContent = '⏳ Загружаю все...';
+        allBtn.disabled = true;
+        await Promise.all(lastResults.map((_, i) => fetchExplanation(i)));
+        allBtn.textContent = '🔼 Скрыть все объяснения';
+        allBtn.disabled = false;
     }
 
     renderHistory();
