@@ -107,9 +107,19 @@
         }
         .explain-all-btn:hover { opacity: 0.85; }
         .explain-all-btn:disabled { opacity: 0.55; cursor: default; }
+        #scroll-top {
+            position: fixed; bottom: 24px; right: 24px;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: #007acc; color: white; border: none;
+            font-size: 22px; line-height: 44px; text-align: center;
+            cursor: pointer; display: none; z-index: 999;
+            box-shadow: 0 2px 10px rgba(0,0,0,.5);
+        }
+        #scroll-top:hover { background: #0096e0; }
     </style>
 </head>
 <body>
+<button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
 <div class="container">
     <h1>Справочник Законов РК 🇰🇿</h1>
     <input type="text" id="searchInput" class="search-box" placeholder="Слово для поиска или вопрос для AI-поиска..." autocomplete="off">
@@ -185,13 +195,16 @@
         runSearch(query, 1);
     }
 
+    function escHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     function highlight(text, query) {
-        if (!query) return text;
+        const safe = escHtml(text);
+        if (!query) return safe;
         const words = query.trim().split(/\s+/).filter(Boolean);
         const pattern = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-        return text.replace(new RegExp(pattern, 'gi'), match =>
-            `<span class="highlight">${match}</span>`
-        );
+        return safe.replace(new RegExp(pattern, 'gi'), m => `<span class="highlight">${m}</span>`);
     }
 
     function getSnippet(text, query, len) {
@@ -247,8 +260,8 @@
                 const card = document.createElement('div');
                 card.className = 'law-card';
                 card.innerHTML = `
-                    <div class="law-title">${item.law_name}</div>
-                    <div class="article-num">${item.article_num}</div>
+                    <div class="law-title">${escHtml(item.law_name)}</div>
+                    <div class="article-num">${escHtml(item.article_num)}</div>
                     <div class="law-text" id="text-${index}">${highlight(preview, query)}</div>
                     <div class="btn-row">
                         <button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${query.replace(/'/g, "\\'")}')">Читать полностью</button>
@@ -451,6 +464,11 @@
         allBtn.textContent = '🔼 Скрыть все объяснения';
         allBtn.disabled = false;
     }
+
+    window.addEventListener('scroll', () => {
+        document.getElementById('scroll-top').style.display =
+            window.scrollY > 300 ? 'block' : 'none';
+    });
 
     renderHistory();
 </script>

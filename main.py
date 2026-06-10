@@ -26,14 +26,18 @@ MAX_RESULTS = 200
 def _score(text, article_num, law_name, words, exact=True):
     char_count = max(len(text), 1)
     hits = sum(text.lower().count(w) for w in words)
-    tf = hits / char_count * 10000          # hits per 10k chars
-    title = sum(3 for w in words if w in article_num.lower())
+    if hits == 0:
+        return 0
+    # BM25-like: длинные релевантные статьи не проигрывают коротким
+    k1, b, avgdl = 1.5, 0.75, 5000
+    tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl))
+    title = sum(4 for w in words if w in article_num.lower())
     law_l = law_name.lower()
-    hier = (5 if 'конституция' in law_l else
-            4 if 'кодекс' in law_l else
-            3 if 'закон' in law_l else
-            2 if 'правила' in law_l else
-            1 if 'приказ' in law_l else 0)
+    hier = (0.5 if 'конституция' in law_l else
+            0.4 if 'кодекс' in law_l else
+            0.3 if 'закон' in law_l else
+            0.2 if 'правила' in law_l else
+            0.1 if 'приказ' in law_l else 0)
     return (tf + title + hier) * (1 if exact else 0.6)
 
 def search_laws_in_db(query, law_filter="", page=1):
