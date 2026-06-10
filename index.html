@@ -60,6 +60,18 @@
             animation: spin 0.7s linear infinite; flex-shrink: 0;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .pagination {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; margin-top: 20px; flex-wrap: wrap;
+        }
+        .page-btn {
+            background: none; border: 1px solid #444; color: #ccc;
+            padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+            min-width: 36px;
+        }
+        .page-btn:hover { border-color: #007acc; color: #007acc; }
+        .page-btn.active { border-color: #007acc; background-color: #007acc; color: white; cursor: default; }
+        .page-btn:disabled { opacity: 0.3; cursor: default; }
     </style>
 </head>
 <body>
@@ -88,6 +100,7 @@
     </select>
     <div id="count"></div>
     <div id="results"><div class="no-results">Введите поисковый запрос...</div></div>
+    <div id="pagination"></div>
 </div>
 
 <script>
@@ -99,7 +112,11 @@
     const texts = {};
     const PREVIEW_LEN = 500;
     const MAX_LEN = 8000;
+    const PER_PAGE = 10;
+    let currentPage = 1;
+    let currentTotal = 0;
     let searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+    const paginationEl = document.getElementById('pagination');
 
     function updateHistory(query) {
         if (!searchHistory.includes(query)) {
@@ -119,7 +136,7 @@
 
     function doSearch(query) {
         searchInput.value = query;
-        runSearch(query);
+        runSearch(query, 1);
     }
 
     function highlight(text, query) {
@@ -139,27 +156,34 @@
         return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
     }
 
-    async function runSearch(query) {
+    async function runSearch(query, page = 1) {
         const filter = filterSelect.value;
         if (query.length < 2) {
             resultsContainer.innerHTML = '<div class="no-results">Введите минимум 2 символа...</div>';
             countEl.innerHTML = '';
+            paginationEl.innerHTML = '';
             return;
         }
         resultsContainer.innerHTML = '<div class="loader">Поиск...</div>';
         countEl.innerHTML = '';
+        paginationEl.innerHTML = '';
         try {
-            const url = `/api/search?q=${encodeURIComponent(query)}${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
+            const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
             const response = await fetch(url);
-            let data = await response.json();
+            const data = await response.json();
+            currentTotal = data.total;
+            currentPage = page;
             resultsContainer.innerHTML = '';
-            if (!data.length) {
+            if (!data.items.length) {
                 countEl.innerHTML = '';
                 resultsContainer.innerHTML = '<div class="no-results">Ничего не найдено.</div>';
                 return;
             }
-            countEl.innerHTML = `Найдено: ${data.length} статей`;
-            data.forEach((item, index) => {
+            const totalPages = Math.ceil(currentTotal / PER_PAGE);
+            const from = (page - 1) * PER_PAGE + 1;
+            const to = Math.min(page * PER_PAGE, currentTotal);
+            countEl.innerHTML = `Найдено: ${currentTotal} статей — показаны ${from}–${to}`;
+            data.items.forEach((item, index) => {
                 const full = item.text_content.length > MAX_LEN
                     ? item.text_content.substring(0, MAX_LEN) + '...'
                     : item.text_content;
@@ -178,8 +202,51 @@
                 `;
                 resultsContainer.appendChild(card);
             });
+            renderPagination(query, page, totalPages);
             updateHistory(query);
         } catch (err) { console.error("Ошибка:", err); }
+    }
+
+    function renderPagination(query, page, totalPages) {
+        if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
+        const buttons = [];
+        const prev = document.createElement('button');
+        prev.className = 'page-btn';
+        prev.textContent = '←';
+        prev.disabled = page === 1;
+        prev.onclick = () => { runSearch(query, page - 1); window.scrollTo(0, 0); };
+        buttons.push(prev);
+
+        const range = pageRange(page, totalPages);
+        range.forEach(p => {
+            const btn = document.createElement('button');
+            btn.className = 'page-btn' + (p === page ? ' active' : '');
+            btn.textContent = p;
+            btn.onclick = p === page ? null : () => { runSearch(query, p); window.scrollTo(0, 0); };
+            buttons.push(btn);
+        });
+
+        const next = document.createElement('button');
+        next.className = 'page-btn';
+        next.textContent = '→';
+        next.disabled = page === totalPages;
+        next.onclick = () => { runSearch(query, page + 1); window.scrollTo(0, 0); };
+        buttons.push(next);
+
+        paginationEl.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.className = 'pagination';
+        buttons.forEach(b => wrap.appendChild(b));
+        paginationEl.appendChild(wrap);
+    }
+
+    function pageRange(current, total) {
+        const delta = 2;
+        const range = [];
+        for (let i = Math.max(1, current - delta); i <= Math.min(total, current + delta); i++) range.push(i);
+        if (range[0] > 1) { range.unshift('…'); range.unshift(1); }
+        if (range[range.length - 1] < total) { range.push('…'); range.push(total); }
+        return range;
     }
 
     let debounceTimer;
@@ -188,8 +255,8 @@
         debounceTimer = setTimeout(fn, delay);
     }
 
-    searchInput.addEventListener('input', e => debounce(() => runSearch(e.target.value.trim()), 300));
-    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim()));
+    searchInput.addEventListener('input', e => debounce(() => runSearch(e.target.value.trim(), 1), 300));
+    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim(), 1));
 
     function toggleText(index, query) {
         const el = document.getElementById('text-' + index);

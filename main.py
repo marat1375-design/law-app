@@ -19,7 +19,10 @@ def download_db():
 
 download_db()
 
-def search_laws_in_db(query, law_filter=""):
+PER_PAGE = 10
+MAX_RESULTS = 200
+
+def search_laws_in_db(query, law_filter="", page=1):
     connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
     query_lower = query.lower()
@@ -40,7 +43,7 @@ def search_laws_in_db(query, law_filter=""):
         SELECT rowid, law_name, article_num, text_content
         FROM laws
         WHERE {like_clause}
-        LIMIT 50
+        LIMIT {MAX_RESULTS}
     """, params)
     for row in cursor.fetchall():
         rowid, law_name, article_num, text_content = row
@@ -60,7 +63,7 @@ def search_laws_in_db(query, law_filter=""):
             SELECT rowid, law_name, article_num, text_content
             FROM laws
             WHERE {like_clause2}
-            LIMIT 50
+            LIMIT {MAX_RESULTS}
         """, params2)
         for row in cursor.fetchall():
             rowid, law_name, article_num, text_content = row
@@ -76,7 +79,9 @@ def search_laws_in_db(query, law_filter=""):
 
     connection.close()
     results.sort(key=lambda x: x["score"], reverse=True)
-    return results[:50]
+    total = len(results)
+    offset = (page - 1) * PER_PAGE
+    return {"total": total, "items": results[offset:offset + PER_PAGE]}
 
 @app.route("/")
 def home():
@@ -96,10 +101,11 @@ def sw():
 def search_api():
     query = request.args.get("q", "")
     law_filter = request.args.get("law", "")
+    page = max(1, int(request.args.get("page", 1)))
     if not query:
-        return jsonify([])
+        return jsonify({"total": 0, "items": []})
     return Response(
-        json.dumps(search_laws_in_db(query, law_filter), ensure_ascii=False),
+        json.dumps(search_laws_in_db(query, law_filter, page), ensure_ascii=False),
         mimetype='application/json; charset=utf-8'
     )
 
