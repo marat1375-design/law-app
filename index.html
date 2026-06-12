@@ -3,221 +3,492 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#007acc">
+    <meta name="theme-color" content="#00AFCA">
     <link rel="manifest" href="/manifest.json">
     <title>Справочник Законов РК</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #1e1e1e;
-            color: #ffffff;
-            margin: 0;
-            padding: 20px;
-        }
-        .container { max-width: 800px; margin: 0 auto; }
-        h1 { color: #007acc; text-align: center; margin-bottom: 16px; }
+        /* ── Reset & base ─────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; }
 
-        /* Tabs */
-        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-        .tab-btn {
-            background: none; border: 1px solid #444; color: #888;
-            padding: 7px 18px; border-radius: 6px; cursor: pointer; font-size: 13px;
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #091829;
+            color: #D8E8F5;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
         }
-        .tab-btn.active { border-color: #007acc; color: #007acc; background: rgba(0,122,204,.12); }
-        .tab-btn:hover:not(.active) { border-color: #666; color: #ccc; }
+
+        /* ── Hero ─────────────────────────────────────────────────── */
+        .hero {
+            background: linear-gradient(150deg, #061222 0%, #0B2245 55%, #0D2E5C 100%);
+            border-bottom: 1px solid rgba(0,175,202,0.2);
+            padding: 40px 20px 34px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -80px; right: -60px;
+            width: 340px; height: 340px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,175,202,0.10) 0%, transparent 65%);
+            pointer-events: none;
+        }
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: -90px; left: -30px;
+            width: 360px; height: 360px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(245,200,66,0.07) 0%, transparent 65%);
+            pointer-events: none;
+        }
+
+        .hero-flag { font-size: 2.2rem; margin-bottom: 6px; line-height: 1; }
+
+        .hero-title {
+            font-size: clamp(1.55rem, 5vw, 2.3rem);
+            font-weight: 700;
+            color: #fff;
+            margin: 0 0 7px;
+            letter-spacing: -0.4px;
+        }
+        .hero-title span { color: #00AFCA; }
+
+        .hero-sub {
+            font-size: 0.93rem;
+            color: #6A9ABD;
+            margin: 0 0 26px;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .stat-chip {
+            background: rgba(0,175,202,0.09);
+            border: 1px solid rgba(0,175,202,0.28);
+            border-radius: 24px;
+            padding: 6px 16px;
+            font-size: 0.87rem;
+            color: #90C8DF;
+            white-space: nowrap;
+        }
+        .stat-chip strong { color: #F5C842; }
+
+        /* ── Container ────────────────────────────────────────────── */
+        .container {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 26px 16px;
+        }
+
+        /* ── Tabs ─────────────────────────────────────────────────── */
+        .tabs {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 22px;
+            border-bottom: 1px solid rgba(0,175,202,0.14);
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: #4A6E8A;
+            padding: 8px 20px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+            margin-bottom: -1px;
+        }
+        .tab-btn.active { border-bottom-color: #00AFCA; color: #00AFCA; }
+        .tab-btn:hover:not(.active) { color: #90C8DF; }
+
+        /* ── Search box ───────────────────────────────────────────── */
+        .search-wrap { position: relative; margin-bottom: 12px; }
+
+        .search-icon {
+            position: absolute;
+            left: 14px; top: 50%;
+            transform: translateY(-50%);
+            font-size: 17px;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+        .search-box {
+            width: 100%;
+            padding: 14px 18px 14px 46px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: 2px solid rgba(0,175,202,0.2);
+            background: #0F2540;
+            color: #D8E8F5;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-box:focus {
+            border-color: #00AFCA;
+            box-shadow: 0 0 0 4px rgba(0,175,202,0.11);
+        }
+        .search-box::placeholder { color: #3A607A; }
 
         /* Autocomplete */
-        .search-wrap { position: relative; margin-bottom: 10px; }
-        .search-box {
-            width: 100%; padding: 15px; font-size: 18px;
-            border-radius: 8px; border: 2px solid #333;
-            background-color: #252526; color: white;
-            box-sizing: border-box; outline: none;
-        }
-        .search-box:focus { border-color: #007acc; }
         .suggest-box {
             position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
-            background: #252526; border: 1px solid #444;
-            border-top: none; border-radius: 0 0 8px 8px;
+            background: #0F2540;
+            border: 1px solid rgba(0,175,202,0.28);
+            border-top: none;
+            border-radius: 0 0 10px 10px;
             display: none; max-height: 260px; overflow-y: auto;
+            box-shadow: 0 10px 28px rgba(0,0,0,.45);
         }
         .suggest-box.open { display: block; }
         .suggest-item {
-            padding: 10px 15px; cursor: pointer; font-size: 14px; color: #ccc;
-            border-bottom: 1px solid #2d2d2d;
+            padding: 10px 16px; cursor: pointer;
+            font-size: 14px; color: #90B8D8;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
         }
         .suggest-item:last-child { border-bottom: none; }
-        .suggest-item:hover, .suggest-item.active { background: #007acc; color: white; }
+        .suggest-item:hover, .suggest-item.active {
+            background: rgba(0,175,202,0.14); color: #fff;
+        }
 
-        .filter-box {
-            width: 100%; padding: 10px; font-size: 15px;
-            border-radius: 8px; border: 2px solid #333;
-            background-color: #252526; color: white;
-            box-sizing: border-box; margin-bottom: 20px; outline: none;
-        }
-        .law-card {
-            background-color: #2d2d2d;
-            border-left: 5px solid #007acc;
-            padding: 20px; margin-bottom: 15px; border-radius: 4px;
-        }
-        .law-title { font-weight: bold; color: #4fc1ff; margin-bottom: 5px; font-size: 16px; }
-        .article-num { color: #ce9178; font-size: 13px; margin-bottom: 10px; }
-        .law-text { line-height: 1.6; color: #d4d4d4; font-size: 14px; }
-        .highlight { background-color: #ffff00; color: #000; border-radius: 2px; padding: 0 2px; }
-        .btn-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .read-more, .copy-btn {
-            background: none; border: 1px solid #007acc; color: #007acc;
-            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
-        }
-        .read-more:hover, .copy-btn:hover { background-color: #007acc; color: white; }
-        .copy-btn.copied { border-color: #4caf50; color: #4caf50; }
-
-        /* Bookmark button */
-        .bookmark-btn {
-            background: none; border: 1px solid #555; color: #888;
-            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
-        }
-        .bookmark-btn:hover { border-color: #f1c40f; color: #f1c40f; }
-        .bookmark-btn.saved { border-color: #f1c40f; color: #f1c40f; }
-
-        .no-results { text-align: center; color: #888; margin-top: 20px; }
-        .count { color: #888; font-size: 13px; margin-bottom: 15px; }
-        .fuzzy-note {
-            font-size: 12px; color: #888; margin-bottom: 10px;
-            padding: 6px 10px; background: #2a2a2a; border-radius: 4px;
-            border-left: 3px solid #007acc;
-        }
-        .fuzzy-note b { color: #4fc1ff; }
-        .history { margin-bottom: 10px; font-size: 13px; color: #888; }
-        .history span { cursor: pointer; color: #007acc; margin-right: 8px; text-decoration: underline; }
-        .loader {
-            display: flex; align-items: center; justify-content: center;
-            gap: 10px; padding: 30px; color: #888; font-size: 14px;
-        }
-        .loader::before {
-            content: '';
-            width: 20px; height: 20px; border-radius: 50%;
-            border: 2px solid #333; border-top-color: #007acc;
-            animation: spin 0.7s linear infinite; flex-shrink: 0;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .pagination {
-            display: flex; align-items: center; justify-content: center;
-            gap: 6px; margin-top: 20px; flex-wrap: wrap;
-        }
-        .page-btn {
-            background: none; border: 1px solid #444; color: #ccc;
-            padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
-            min-width: 36px;
-        }
-        .page-btn:hover { border-color: #007acc; color: #007acc; }
-        .page-btn.active { border-color: #007acc; background-color: #007acc; color: white; cursor: default; }
-        .page-btn:disabled { opacity: 0.3; cursor: default; }
-        .explain-btn {
-            background: none; border: 1px solid #9b59b6; color: #9b59b6;
-            padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
-        }
-        .explain-btn:hover { background-color: #9b59b6; color: white; }
-        .explain-btn.loading { opacity: 0.7; cursor: default; pointer-events: none; }
-        .ai-explanation {
-            display: none; margin-top: 12px; padding: 12px;
-            background-color: #1a1a2e; border-left: 3px solid #9b59b6;
-            border-radius: 4px; font-size: 13px; line-height: 1.6; color: #d4d4d4;
-        }
-        .ai-explanation.visible { display: block; }
-        .ai-label {
-            color: #9b59b6; font-size: 11px; text-transform: uppercase;
-            letter-spacing: 1px; margin-bottom: 6px; font-weight: bold;
-        }
+        /* ── AI query row ─────────────────────────────────────────── */
         .ai-query-row {
             display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
         }
         .ai-query-btn {
-            background: none; border: 1px solid #9b59b6; color: #9b59b6;
-            padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+            background: linear-gradient(135deg, #1A3A5C, #1D4870);
+            border: 1px solid rgba(0,175,202,0.38);
+            color: #00AFCA;
+            padding: 7px 16px; border-radius: 7px;
+            cursor: pointer; font-size: 13px;
             white-space: nowrap; flex-shrink: 0;
+            transition: all 0.2s;
         }
-        .ai-query-btn:hover { background-color: #9b59b6; color: white; }
-        .ai-query-btn:disabled { opacity: 0.6; cursor: default; }
-        .ai-query-note { color: #888; font-size: 12px; }
+        .ai-query-btn:hover {
+            background: linear-gradient(135deg, #1D4870, #215A8C);
+            box-shadow: 0 0 14px rgba(0,175,202,0.22);
+        }
+        .ai-query-btn:disabled { opacity: 0.55; cursor: default; }
+        .ai-query-note { color: #4A6E8A; font-size: 12px; }
+
+        /* ── Filter select ────────────────────────────────────────── */
+        .filter-box {
+            width: 100%; padding: 10px 14px; font-size: 14px;
+            border-radius: 8px; border: 1px solid rgba(0,175,202,0.18);
+            background: #0F2540; color: #90B8D8;
+            box-sizing: border-box; margin-bottom: 6px;
+            outline: none; cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .filter-box:focus { border-color: #00AFCA; }
+        .filter-box option { background: #0F2540; color: #D8E8F5; }
+
+        /* ── History ──────────────────────────────────────────────── */
+        .history { margin-bottom: 12px; font-size: 13px; color: #3A607A; }
+        .history span {
+            cursor: pointer; color: #00AFCA; margin-right: 8px;
+            border-bottom: 1px dashed rgba(0,175,202,0.35);
+        }
+        .history span:hover { color: #40C8E2; }
+
+        /* ── Count & notes ────────────────────────────────────────── */
+        .count { color: #4A6E8A; font-size: 13px; margin-bottom: 14px; }
+
+        .fuzzy-note {
+            font-size: 12.5px; color: #7FAFC9; margin-bottom: 12px;
+            padding: 8px 14px;
+            background: rgba(0,175,202,0.07);
+            border-radius: 6px;
+            border-left: 3px solid #00AFCA;
+        }
+        .fuzzy-note b { color: #00AFCA; }
+
+        /* ── Law cards ────────────────────────────────────────────── */
+        .law-card {
+            background: #0D2040;
+            border: 1px solid rgba(0,175,202,0.13);
+            border-left: 4px solid #00AFCA;
+            padding: 18px 20px;
+            margin-bottom: 11px;
+            border-radius: 8px;
+            animation: cardIn 0.35s ease-out both;
+            transition: border-color 0.18s, box-shadow 0.18s, transform 0.15s;
+        }
+        .law-card:hover {
+            border-color: rgba(0,175,202,0.38);
+            box-shadow: 0 6px 24px rgba(0,0,0,.3);
+            transform: translateY(-1px);
+        }
+
+        /* Staggered entry */
+        .law-card:nth-child(1)  { animation-delay: 0.03s; }
+        .law-card:nth-child(2)  { animation-delay: 0.07s; }
+        .law-card:nth-child(3)  { animation-delay: 0.11s; }
+        .law-card:nth-child(4)  { animation-delay: 0.15s; }
+        .law-card:nth-child(5)  { animation-delay: 0.19s; }
+        .law-card:nth-child(6)  { animation-delay: 0.23s; }
+        .law-card:nth-child(7)  { animation-delay: 0.27s; }
+        .law-card:nth-child(8)  { animation-delay: 0.31s; }
+        .law-card:nth-child(9)  { animation-delay: 0.35s; }
+        .law-card:nth-child(10) { animation-delay: 0.39s; }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(14px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .law-title {
+            font-weight: 600; color: #9ACCE2;
+            margin-bottom: 3px; font-size: 14.5px; line-height: 1.4;
+        }
+        .article-num {
+            color: #F5C842; font-size: 12.5px;
+            margin-bottom: 10px; opacity: 0.88;
+        }
+        .law-text {
+            line-height: 1.68; color: #B8D0E8; font-size: 14px;
+        }
+        .highlight {
+            background: rgba(245,200,66,0.2);
+            color: #F7E57A;
+            border-radius: 2px; padding: 0 2px;
+        }
+        .snip-sep {
+            color: rgba(0,175,202,0.22); text-align: center;
+            padding: 4px 0; font-size: 11px; letter-spacing: 5px;
+        }
+
+        /* ── Card buttons ─────────────────────────────────────────── */
+        .btn-row { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+
+        .read-more, .copy-btn {
+            background: none;
+            border: 1px solid rgba(0,175,202,0.35);
+            color: #00AFCA;
+            padding: 5px 12px; border-radius: 5px;
+            cursor: pointer; font-size: 12.5px;
+            transition: all 0.15s;
+        }
+        .read-more:hover, .copy-btn:hover {
+            background: rgba(0,175,202,0.12); border-color: #00AFCA;
+        }
+        .copy-btn.copied { border-color: #2ecc71; color: #2ecc71; }
+
+        .bookmark-btn {
+            background: none;
+            border: 1px solid rgba(255,255,255,0.13);
+            color: #6A90B0;
+            padding: 5px 12px; border-radius: 5px;
+            cursor: pointer; font-size: 12.5px;
+            transition: all 0.15s;
+        }
+        .bookmark-btn:hover { border-color: #F5C842; color: #F5C842; }
+        .bookmark-btn.saved { border-color: #F5C842; color: #F5C842; }
+
+        .explain-btn {
+            background: none;
+            border: 1px solid rgba(155,89,182,0.45);
+            color: #AD7DD8;
+            padding: 5px 12px; border-radius: 5px;
+            cursor: pointer; font-size: 12.5px;
+            transition: all 0.15s;
+        }
+        .explain-btn:hover { background: rgba(155,89,182,0.12); border-color: #9b59b6; }
+        .explain-btn.loading { opacity: 0.6; cursor: default; pointer-events: none; }
+
+        .ai-explanation {
+            display: none; margin-top: 12px; padding: 12px 14px;
+            background: rgba(155,89,182,0.07);
+            border-left: 3px solid #9b59b6;
+            border-radius: 0 6px 6px 0;
+            font-size: 13px; line-height: 1.65; color: #C0AED8;
+        }
+        .ai-explanation.visible { display: block; }
+        .ai-label {
+            color: #9b59b6; font-size: 11px;
+            text-transform: uppercase; letter-spacing: 1px;
+            margin-bottom: 6px; font-weight: 600;
+        }
+
+        /* ── Action buttons ───────────────────────────────────────── */
         .explain-all-btn {
-            background: linear-gradient(135deg, #6c3483, #9b59b6);
-            border: none; color: white;
-            padding: 9px 22px; border-radius: 6px; cursor: pointer; font-size: 14px;
-            margin-bottom: 10px; display: inline-block;
+            background: linear-gradient(135deg, #4a1f6e, #7b3faf);
+            border: none; color: #fff;
+            padding: 9px 20px; border-radius: 7px;
+            cursor: pointer; font-size: 13.5px;
+            margin-bottom: 10px;
+            transition: opacity 0.2s;
         }
-        .explain-all-btn:hover { opacity: 0.85; }
-        .explain-all-btn:disabled { opacity: 0.55; cursor: default; }
+        .explain-all-btn:hover { opacity: 0.86; }
+        .explain-all-btn:disabled { opacity: 0.48; cursor: default; }
 
-        /* Export button */
         .export-btn {
-            background: none; border: 1px solid #27ae60; color: #27ae60;
-            padding: 9px 22px; border-radius: 6px; cursor: pointer; font-size: 14px;
-            margin-bottom: 10px; margin-left: 8px; display: inline-block;
+            background: none;
+            border: 1px solid rgba(46,204,113,0.45);
+            color: #2ecc71;
+            padding: 9px 20px; border-radius: 7px;
+            cursor: pointer; font-size: 13.5px;
+            margin-bottom: 10px; margin-left: 8px;
+            transition: all 0.15s;
         }
-        .export-btn:hover { background: #27ae60; color: white; }
+        .export-btn:hover { background: rgba(46,204,113,0.1); border-color: #2ecc71; }
 
-        /* Snippet separator */
-        .snip-sep { color: #555; text-align: center; padding: 4px 0; font-size: 11px; letter-spacing: 4px; }
+        /* ── Loader ───────────────────────────────────────────────── */
+        .loader {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; padding: 44px; color: #3A607A; font-size: 14px;
+        }
+        .loader::before {
+            content: '';
+            width: 22px; height: 22px; border-radius: 50%;
+            border: 2px solid rgba(0,175,202,0.18);
+            border-top-color: #00AFCA;
+            animation: spin 0.7s linear infinite; flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* Bookmarks panel */
-        .bk-empty { text-align: center; color: #888; padding: 40px 0; font-size: 15px; }
+        /* ── No results ───────────────────────────────────────────── */
+        .no-results {
+            text-align: center; color: #2E4E68;
+            margin-top: 36px; font-size: 15px;
+        }
 
+        /* ── Pagination ───────────────────────────────────────────── */
+        .pagination {
+            display: flex; align-items: center; justify-content: center;
+            gap: 5px; margin-top: 22px; flex-wrap: wrap;
+        }
+        .page-btn {
+            background: none;
+            border: 1px solid rgba(0,175,202,0.2);
+            color: #6A90B0;
+            padding: 6px 12px; border-radius: 5px;
+            cursor: pointer; font-size: 13px; min-width: 36px;
+            transition: all 0.15s;
+        }
+        .page-btn:hover { border-color: #00AFCA; color: #00AFCA; }
+        .page-btn.active {
+            border-color: #00AFCA; background: #00AFCA;
+            color: #091829; font-weight: 600; cursor: default;
+        }
+        .page-btn:disabled { opacity: 0.28; cursor: default; }
+
+        /* ── Scroll to top ────────────────────────────────────────── */
         #scroll-top {
             position: fixed; bottom: 24px; right: 24px;
             width: 44px; height: 44px; border-radius: 50%;
-            background: #007acc; color: white; border: none;
-            font-size: 22px; line-height: 44px; text-align: center;
+            background: linear-gradient(135deg, #00AFCA, #0090A8);
+            color: #091829; border: none;
+            font-size: 20px; font-weight: bold;
+            line-height: 44px; text-align: center;
             cursor: pointer; display: none; z-index: 999;
-            box-shadow: 0 2px 10px rgba(0,0,0,.5);
+            box-shadow: 0 4px 18px rgba(0,175,202,0.42);
+            transition: transform 0.2s, box-shadow 0.2s;
         }
-        #scroll-top:hover { background: #0096e0; }
+        #scroll-top:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 22px rgba(0,175,202,0.55);
+        }
+
+        /* ── Bookmarks ────────────────────────────────────────────── */
+        .bk-empty {
+            text-align: center; color: #2E4E68;
+            padding: 52px 0; font-size: 15px;
+        }
+
+        /* ── Mobile ───────────────────────────────────────────────── */
+        @media (max-width: 600px) {
+            .hero { padding: 26px 16px 24px; }
+            .hero-flag { font-size: 1.8rem; }
+            .stats-row { gap: 7px; }
+            .stat-chip { font-size: 0.81rem; padding: 5px 12px; }
+            .container { padding: 16px 12px; }
+            .law-card { padding: 14px 14px; }
+            .btn-row { gap: 5px; }
+            .read-more, .copy-btn, .bookmark-btn, .explain-btn {
+                font-size: 11.5px; padding: 4px 9px;
+            }
+            .explain-all-btn, .export-btn {
+                font-size: 12.5px; padding: 8px 14px;
+            }
+        }
     </style>
 </head>
 <body>
+
 <button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<!-- ── Hero ──────────────────────────────────────────────── -->
+<header class="hero">
+    <div class="hero-flag">🇰🇿</div>
+    <h1 class="hero-title">Справочник <span>Законов РК</span></h1>
+    <p class="hero-sub">Интеллектуальный поиск по законодательству Республики Казахстан</p>
+    <div class="stats-row">
+        <div class="stat-chip">📋 <strong>5 000+</strong> статей</div>
+        <div class="stat-chip">⚖️ <strong>20</strong> НПА</div>
+        <div class="stat-chip">🤖 AI-поиск по смыслу</div>
+        <div class="stat-chip">🔍 Полнотекстовый FTS</div>
+    </div>
+</header>
+
+<!-- ── App ───────────────────────────────────────────────── -->
 <div class="container">
-    <h1>Справочник Законов РК 🇰🇿</h1>
 
     <div class="tabs">
-        <button class="tab-btn active" id="tab-search" onclick="showTab('search')">🔍 Поиск</button>
-        <button class="tab-btn" id="tab-bookmarks" onclick="showTab('bookmarks')">🔖 Закладки <span id="bk-count"></span></button>
+        <button class="tab-btn active" id="tab-search"     onclick="showTab('search')">🔍 Поиск</button>
+        <button class="tab-btn"         id="tab-bookmarks" onclick="showTab('bookmarks')">🔖 Закладки <span id="bk-count"></span></button>
     </div>
 
     <!-- Search panel -->
     <div id="search-panel">
         <div class="search-wrap">
-            <input type="text" id="searchInput" class="search-box" placeholder="Слово для поиска или вопрос для AI-поиска..." autocomplete="off">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" class="search-box"
+                   placeholder="Поиск по статье, теме или вопросу..."
+                   autocomplete="off">
             <div class="suggest-box" id="suggest-box"></div>
         </div>
+
         <div class="ai-query-row">
             <button class="ai-query-btn" id="ai-query-btn" onclick="runAiQuery()">🤖 Найти по смыслу</button>
             <span class="ai-query-note" id="ai-query-note"></span>
         </div>
+
         <div class="history" id="history"></div>
+
         <select id="filterSelect" class="filter-box">
             <option value="">— Все законы —</option>
-            <option value="Водный кодекс">Водный кодекс РК</option>
-            <option value="Гражданский кодекс">Гражданский кодекс РК</option>
-            <option value="Земельный кодекс">Земельный кодекс РК</option>
-            <option value="Трудовой кодекс">Трудовой кодекс РК (ред. 19.05.2026)</option>
-            <option value="Экологический кодекс">Экологический кодекс</option>
-            <option value="КоАП">КоАП РК</option>
-            <option value="Налоговый">Налоговый кодекс РК (2025)</option>
-            <option value="Конституция">Конституция РК (ред. 2026)</option>
-            <option value="недрах">О недрах и недропользовании</option>
-            <option value="атомной энергии">Об использовании атомной энергии</option>
-            <option value="ДСМ-275">Приказ МЗ РК № ДСМ-275/2020</option>
-            <option value="ДСМ-90">Приказ МЗ РК № ДСМ-90</option>
-            <option value="пожарной безопасности">Технический регламент пожарной безопасности</option>
-            <option value="гражданской защите">Закон о гражданской защите</option>
-            <option value="разрешениях">Закон о разрешениях и уведомлениях</option>
-            <option value="опасных грузов">Правила перевозки опасных грузов</option>
-            <option value="коммунальными отходами">Правила управления коммунальными отходами</option>
-            <option value="дорожного движения">Правила дорожного движения РК</option>
-            <option value="ядерных материалов">Правила транспортировки ядерных материалов</option>
-            <option value="СТ РК 1513">СТ РК 1513-2019 Обращение с отходами</option>
+            <option value="КоАП">⚖️  КоАП РК</option>
+            <option value="Трудовой кодекс">👷  Трудовой кодекс РК (ред. 19.05.2026)</option>
+            <option value="Экологический кодекс">🌿  Экологический кодекс РК</option>
+            <option value="Земельный кодекс">🏞️  Земельный кодекс РК</option>
+            <option value="Гражданский кодекс">🏛️  Гражданский кодекс РК</option>
+            <option value="Налоговый">💰  Налоговый кодекс РК (2025)</option>
+            <option value="Конституция">📜  Конституция РК (ред. 2026)</option>
+            <option value="Водный кодекс">💧  Водный кодекс РК</option>
+            <option value="недрах">⛏️  О недрах и недропользовании</option>
+            <option value="атомной энергии">☢️  Об использовании атомной энергии</option>
+            <option value="пожарной безопасности">🔥  Технический регламент пожарной безопасности</option>
+            <option value="гражданской защите">🛡️  Закон о гражданской защите</option>
+            <option value="разрешениях">📄  Закон о разрешениях и уведомлениях</option>
+            <option value="опасных грузов">🚛  Правила перевозки опасных грузов</option>
+            <option value="коммунальными отходами">♻️  Правила управления коммунальными отходами</option>
+            <option value="дорожного движения">🚦  Правила дорожного движения РК</option>
+            <option value="ядерных материалов">☣️  Правила транспортировки ядерных материалов</option>
+            <option value="ДСМ-275">🏥  Приказ МЗ РК № ДСМ-275/2020</option>
+            <option value="ДСМ-90">🏥  Приказ МЗ РК № ДСМ-90</option>
+            <option value="СТ РК 1513">♻️  СТ РК 1513-2019 Обращение с отходами</option>
         </select>
+
         <div id="count"></div>
         <div id="fuzzy-note"></div>
         <div id="ai-actions"></div>
@@ -370,7 +641,6 @@
             div.textContent = name;
             div.addEventListener('mousedown', e => {
                 e.preventDefault();
-                // Set filter to matching option
                 filterSelect.value = '';
                 for (const opt of filterSelect.options) {
                     if (opt.value && name.toLowerCase().includes(opt.value.toLowerCase())) {
@@ -396,7 +666,6 @@
 
     // ── Keyboard shortcuts ────────────────────────────────────────────────────
 
-    // '/' — focus search from anywhere on the page
     document.addEventListener('keydown', e => {
         if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'SELECT') {
             e.preventDefault();
@@ -405,7 +674,6 @@
         }
     });
 
-    // Arrow keys, Enter, Escape inside the search input
     searchInput.addEventListener('keydown', e => {
         const items = suggestBox.querySelectorAll('.suggest-item');
 
@@ -547,7 +815,6 @@
 
             renderPagination(query, page, totalPages);
 
-            // Action buttons below results
             const allBtn = document.createElement('button');
             allBtn.className = 'explain-all-btn';
             allBtn.id = 'explain-all-btn';
@@ -797,7 +1064,6 @@
         btn.textContent = '⏳ Проверяю...';
         note.textContent = '';
         try {
-            // Step 1: try original query — only reformulate if nothing found
             const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
             const checkRes  = await fetch(checkUrl);
             const checkData = await checkRes.json();
@@ -808,7 +1074,6 @@
                 return;
             }
 
-            // Step 2: zero results — ask AI to extract keywords
             btn.textContent = '⏳ Анализирую...';
             const res  = await fetch('/api/reformulate', {
                 method: 'POST',
@@ -876,7 +1141,6 @@
         }
     });
 
-    // Restore search from URL on page load (?q=...&law=...&page=...)
     (function() {
         const p   = new URLSearchParams(location.search);
         const q   = p.get('q')   || '';
