@@ -21,10 +21,21 @@ def download_db():
 
 
 def _stem(w):
-    """First 5–6 chars as morphological stem for Russian."""
+    """Morphological stem for Russian via truncation.
+    5-char words lose last char to strip case endings: нефти→нефт, землю→земл, почвы→почв."""
     if len(w) >= 9: return w[:6]
     if len(w) >= 6: return w[:5]
+    if len(w) == 5: return w[:4]
     return w
+
+
+# Prepositions, conjunctions, pronouns that add noise to multi-word queries.
+_STOP_WORDS = frozenset({
+    "на", "в", "во", "из", "к", "ко", "с", "со", "по", "за", "о", "об",
+    "при", "от", "до", "под", "над", "без", "у", "для", "а", "и", "но",
+    "или", "что", "как", "это", "не", "же", "ли", "бы", "то", "ни",
+    "их", "им", "его", "её", "он", "она", "они", "мы", "вы", "я",
+})
 
 
 _fts_ready = False
@@ -99,7 +110,14 @@ def _score(text, article_num, law_name, words, exact=True):
 def search_laws_in_db(query, law_filter="", page=1):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    words = [w for w in query.lower().split() if w]
+    all_words = [w for w in query.lower().split() if w]
+
+    # Keywords: stop-words and single-char tokens removed.
+    # FTS queries and scoring use kw so that "на*" never pollutes results.
+    kw = [w for w in all_words if w not in _STOP_WORDS and len(w) >= 3]
+    if not kw:
+        kw = [w for w in all_words if len(w) >= 2]  # last resort
+
     results = []
     seen_ids = set()
 
@@ -108,9 +126,9 @@ def search_laws_in_db(query, law_filter="", page=1):
 
     rows = []
 
-    if _fts_ready and words:
-        # AND search — all stems must appear
-        fts_and = ' '.join(_stem(w) + '*' for w in words)
+    if _fts_ready and kw:
+        # AND search — every keyword stem must appear in the document
+        fts_and = ' '.join(_stem(w) + '*' for w in kw)
         try:
             cur.execute(f"""
                 SELECT rowid, law_name, article_num, text_content
@@ -121,9 +139,9 @@ def search_laws_in_db(query, law_filter="", page=1):
         except Exception as e:
             print(f"FTS AND error: {e}")
 
-        # OR fallback for multi-word queries
-        if not rows and len(words) > 1:
-            fts_or = ' OR '.join(_stem(w) + '*' for w in words)
+        # OR fallback — uses kw only (no stop words), so "на*" never leaks in
+        if not rows and len(kw) > 1:
+            fts_or = ' OR '.join(_stem(w) + '*' for w in kw)
             try:
                 cur.execute(f"""
                     SELECT rowid, law_name, article_num, text_content
@@ -134,9 +152,9 @@ def search_laws_in_db(query, law_filter="", page=1):
             except Exception as e:
                 print(f"FTS OR error: {e}")
 
-    # LIKE fallback (if FTS unavailable or empty)
-    if not rows and words:
-        stems = [_stem(w) for w in words]
+    # LIKE fallback (FTS unavailable or empty)
+    if not rows and kw:
+        stems = [_stem(w) for w in kw]
         parts = [f"LOWER(text_content) LIKE ?" for _ in stems]
         params = [f"%{s}%" for s in stems] + law_param
         if law_filter:
@@ -149,7 +167,8 @@ def search_laws_in_db(query, law_filter="", page=1):
 
     for rowid, law_name, article_num, text_content in rows:
         if rowid not in seen_ids:
-            score = _score(text_content, article_num, law_name, words)
+            # Score with kw: stop words excluded so "на" doesn't inflate counts
+            score = _score(text_content, article_num, law_name, kw)
             results.append({
                 "law_name": law_name,
                 "article_num": article_num,
