@@ -116,7 +116,7 @@ def _score(text, article_num, law_name, words, exact=True):
     return (tf + title + hier) * (1 if exact else 0.6)
 
 
-def search_laws_in_db(query, law_filter="", page=1):
+def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     all_words = [w for w in query.lower().split() if w]
@@ -215,6 +215,8 @@ def search_laws_in_db(query, law_filter="", page=1):
     conn.close()
     results.sort(key=lambda x: x["score"], reverse=True)
     total = len(results)
+    if fetch_all:
+        return {"total": total, "items": results}
     offset = (page - 1) * PER_PAGE
     return {"total": total, "items": results[offset:offset + PER_PAGE]}
 
@@ -265,27 +267,44 @@ def search_api():
     data = search_laws_in_db(query, law_filter, page)
     corrected_query = None
 
-    # AI expansion: only when search genuinely found almost nothing.
-    # Threshold = 3 (not 5): the OR supplement now runs inside search_laws_in_db
-    # when AND < 10, so "увольнение беременной" already gets ст.54/99 via OR.
-    # AI fires only when even OR couldn't find relevant articles.
+    # AI expansion: fires when keyword search alone is insufficient.
+    # Threshold = 10: catches semantic mismatches where article text uses
+    # different terminology than the query (e.g. "разлив нефти на землю" →
+    # ст.337 КоАП says "загрязнение опасными химическими", no "нефть").
+    # "увольнение беременной" returns 52 via OR → well above threshold, no AI.
     meaningful_words = [w for w in query.lower().split()
                         if w not in _STOP_WORDS and len(w) >= 3]
-    if data["total"] < 3 and len(meaningful_words) >= 2:
+    if data["total"] < 10 and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
-            syn_data = search_laws_in_db(synonyms, law_filter, 1)
+            syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True)
             if syn_data["total"] > 0:
                 corrected_query = synonyms
                 if data["total"] == 0:
                     # No original results at all — use synonyms outright
                     data = syn_data
                 else:
-                    # Merge: append synonym results not already in the original set
+                    # Re-score AI results against original query keywords.
+                    # This filters out SanPiN/regulatory articles that have
+                    # high BM25 for the AI terms but zero relevance to the
+                    # original query (e.g. "загрязнение химическими" appears
+                    # 30+ times in ДСМ sanitary rules, drowning out ст.337).
+                    # ст.337 has "земл"×4 from "разлив нефти на ЗЕМЛЮ" → passes.
+                    orig_kw = [w for w in query.lower().split()
+                               if w not in _STOP_WORDS and len(w) >= 3]
                     seen = {(i["law_name"], i["article_num"]) for i in data["items"]}
-                    new_items = [i for i in syn_data["items"]
-                                 if (i["law_name"], i["article_num"]) not in seen]
+                    new_items = []
+                    for item in syn_data["items"]:
+                        if (item["law_name"], item["article_num"]) in seen:
+                            continue
+                        rs = _score(item["text_content"], item["article_num"],
+                                    item["law_name"], orig_kw)
+                        if rs > 0:
+                            item["score"] = rs
+                            new_items.append(item)
                     data["items"].extend(new_items)
+                    data["items"].sort(key=lambda x: x["score"], reverse=True)
+                    data["items"] = data["items"][:PER_PAGE]
                     data["total"] += len(new_items)
 
     data["corrected_query"] = corrected_query
