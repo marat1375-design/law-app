@@ -82,15 +82,15 @@ def _ai_synonyms(query):
         client = anthropic.Anthropic()
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=30,
+            max_tokens=20,
             system=(
-                "Задача: для поискового запроса верни ровно 3 юридических слова "
+                "Задача: для поискового запроса верни 2 ключевых юридических слова "
                 "из законодательства РК, которыми это понятие описывается в текстах законов. "
-                "Ответ — только 3 слова через пробел, без пояснений, без предложений. "
+                "Ответ — только 2 слова через пробел, без пояснений. "
                 "Примеры: "
-                "'разлив нефти' → 'загрязнение земли опасными'; "
-                "'увольнение' → 'расторжение трудового договора'; "
-                "'арест имущества' → 'наложение ареста взыскание'."
+                "'разлив нефти на землю' → 'загрязнение земли'; "
+                "'не выдали зарплату' → 'заработная плата'; "
+                "'штраф за нет касок' → 'охрана труда'."
             ),
             messages=[{"role": "user", "content": query}]
         )
@@ -112,7 +112,10 @@ def _score(text, article_num, law_name, words, exact=True):
         return 0
     k1, b, avgdl = 1.5, 0.75, 5000
     tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl))
-    title = sum(4 for w in words if _stem(w) in article_num.lower())
+    title_words = re.findall(r'[а-яёa-z]+', article_num.lower())
+    title = sum(4 for w in words
+                if any(tw.startswith(_stem(w)) and len(tw) <= len(_stem(w)) + 5
+                       for tw in title_words))
     law_l = law_name.lower()
     hier = (0.5 if 'конституция' in law_l else
             0.4 if 'кодекс' in law_l or 'коап' in law_l else
@@ -141,6 +144,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
 
     rows = []
     seen_rowids = set()
+    and_count = 0
 
     if _fts_ready and kw:
         # AND: every keyword stem must appear in the document
@@ -155,6 +159,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
                 if row[0] not in seen_rowids:
                     rows.append(row)
                     seen_rowids.add(row[0])
+            and_count = len(rows)
         except Exception as e:
             print(f"FTS AND error: {e}")
 
@@ -195,6 +200,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
             if row[0] not in seen_rowids:
                 rows.append(row)
                 seen_rowids.add(row[0])
+        and_count = len(rows)
 
         # OR supplement: same threshold as FTS path
         if len(rows) < 5 and len(stems) > 1:
@@ -222,9 +228,9 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     results.sort(key=lambda x: x["score"], reverse=True)
     total = len(results)
     if fetch_all:
-        return {"total": total, "items": results}
+        return {"total": total, "items": results, "and_total": and_count}
     offset = (page - 1) * PER_PAGE
-    return {"total": total, "items": results[offset:offset + PER_PAGE]}
+    return {"total": total, "items": results[offset:offset + PER_PAGE], "and_total": and_count}
 
 
 @app.route("/")
@@ -280,13 +286,16 @@ def search_api():
     # "увольнение беременной" returns 52 via OR → well above threshold, no AI.
     meaningful_words = [w for w in query.lower().split()
                         if w not in _STOP_WORDS and len(w) >= 3]
-    if data["total"] < 10 and len(meaningful_words) >= 2:
+    and_total = data.get("and_total", 1)
+    # Fire AI when: too few results OR AND found nothing (query needs semantic expansion,
+    # e.g. "штраф за нет касок" — AND("штра* касо*")=0 but OR floods 200 штраф articles).
+    if (data["total"] < 10 or and_total == 0) and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
             syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True)
             if syn_data["total"] > 0:
                 corrected_query = synonyms
-                if data["total"] < 4:
+                if data["total"] < 4 or and_total == 0:
                     # Very few original results (likely noise from OR fallback) —
                     # use synonyms outright. Covers total==0 and cases like
                     # "не выдали зарплату" where 3 irrelevant ГК/Приказ articles
