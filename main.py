@@ -71,25 +71,28 @@ PER_PAGE = 10
 MAX_RESULTS = 200
 
 def _ai_synonyms(query):
-    """Expand query with legally equivalent terms from RK legislation vocabulary.
+    """Expand query with legally equivalent terms from RK environmental/admin law.
 
     Designed to bridge colloquial descriptions to statutory language, e.g.:
-      'разлив нефти на землю' → 'загрязнение опасными химическими веществами'
+      'разлив нефти на землю' → 'загрязнение земли опасными'
     so that ст.337 КоАП ('Порча земли') is found even when the word 'нефть'
     does not appear in the article text.
+
+    Prompt restricts output to ЭкоКодекс/КоАП vocabulary and limits to 3 words
+    so FTS5 AND doesn't become overly restrictive.
     """
     try:
         client = anthropic.Anthropic()
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=50,
+            max_tokens=30,
             system=(
-                "Ты — юрист по законодательству РК. "
-                "Для поискового запроса дай 3–5 слов, которыми то же нарушение "
-                "описывается в текстах законов РК. "
-                "Примеры: 'разлив нефти' → 'загрязнение опасными химическими'; "
-                "'слив в реку' → 'сброс загрязняющих веществ водоём'. "
-                "Только ключевые слова через пробел, без предлогов, без объяснений."
+                "Ты — инспектор экологического контроля РК. "
+                "Для нарушения дай ровно 3 слова из Экологического кодекса или КоАП РК. "
+                "Запрещено: налоговые термины, нефтепродукты, ГСМ, коммерческие термины. "
+                "Примеры: 'разлив нефти на землю' → 'загрязнение земли опасными'; "
+                "'слив в реку' → 'сброс загрязняющих веществ'. "
+                "Только 3 слова через пробел."
             ),
             messages=[{"role": "user", "content": query}]
         )
