@@ -71,16 +71,25 @@ PER_PAGE = 10
 MAX_RESULTS = 200
 
 def _ai_synonyms(query):
-    """Ask AI for synonyms/related legal terms when query finds nothing."""
+    """Expand query with legally equivalent terms from RK legislation vocabulary.
+
+    Designed to bridge colloquial descriptions to statutory language, e.g.:
+      'разлив нефти на землю' → 'загрязнение опасными химическими веществами'
+    so that ст.337 КоАП ('Порча земли') is found even when the word 'нефть'
+    does not appear in the article text.
+    """
     try:
         client = anthropic.Anthropic()
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=30,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=50,
             system=(
-                "Ты — помощник по законодательству РК. "
-                "Дай 2–3 русских синонима или близких юридических термина для слова/фразы. "
-                "Только отдельные существительные через пробел. Без объяснений."
+                "Ты — юрист по законодательству РК. "
+                "Для поискового запроса дай 3–5 слов, которыми то же нарушение "
+                "описывается в текстах законов РК. "
+                "Примеры: 'разлив нефти' → 'загрязнение опасными химическими'; "
+                "'слив в реку' → 'сброс загрязняющих веществ водоём'. "
+                "Только ключевые слова через пробел, без предлогов, без объяснений."
             ),
             messages=[{"role": "user", "content": query}]
         )
@@ -230,13 +239,28 @@ def search_api():
     data = search_laws_in_db(query, law_filter, page)
     corrected_query = None
 
-    if data["total"] == 0:
+    # Trigger AI expansion when results are few, not just zero.
+    # Threshold = 5: catches cases like "разлив нефти на землю" which after stemming
+    # returns a handful of results but misses ст.337 (text says "опасными химическими",
+    # not "нефть"). Only expand for multi-word queries (single words already did OR).
+    meaningful_words = [w for w in query.lower().split()
+                        if w not in _STOP_WORDS and len(w) >= 3]
+    if data["total"] < 5 and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
-            syn_data = search_laws_in_db(synonyms, law_filter, page)
+            syn_data = search_laws_in_db(synonyms, law_filter, 1)
             if syn_data["total"] > 0:
-                data = syn_data
                 corrected_query = synonyms
+                if data["total"] == 0:
+                    # No original results at all — use synonyms outright
+                    data = syn_data
+                else:
+                    # Merge: append synonym results not already in the original set
+                    seen = {(i["law_name"], i["article_num"]) for i in data["items"]}
+                    new_items = [i for i in syn_data["items"]
+                                 if (i["law_name"], i["article_num"]) not in seen]
+                    data["items"].extend(new_items)
+                    data["total"] += len(new_items)
 
     data["corrected_query"] = corrected_query
     return Response(
