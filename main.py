@@ -109,7 +109,7 @@ def _score(text, article_num, law_name, words, exact=True):
     title = sum(4 for w in words if _stem(w) in article_num.lower())
     law_l = law_name.lower()
     hier = (0.5 if 'конституция' in law_l else
-            0.4 if 'кодекс' in law_l else
+            0.4 if 'кодекс' in law_l or 'коап' in law_l else
             0.3 if 'закон' in law_l else
             0.2 if 'правила' in law_l else
             0.1 if 'приказ' in law_l else 0)
@@ -134,9 +134,10 @@ def search_laws_in_db(query, law_filter="", page=1):
     law_param = [f'%{law_filter.lower()}%'] if law_filter else []
 
     rows = []
+    seen_rowids = set()
 
     if _fts_ready and kw:
-        # AND search — every keyword stem must appear in the document
+        # AND: every keyword stem must appear in the document
         fts_and = ' '.join(_stem(w) + '*' for w in kw)
         try:
             cur.execute(f"""
@@ -144,12 +145,19 @@ def search_laws_in_db(query, law_filter="", page=1):
                 FROM laws_fts WHERE laws_fts MATCH ?
                 {law_clause} LIMIT {MAX_RESULTS}
             """, [fts_and] + law_param)
-            rows = cur.fetchall()
+            for row in cur.fetchall():
+                if row[0] not in seen_rowids:
+                    rows.append(row)
+                    seen_rowids.add(row[0])
         except Exception as e:
             print(f"FTS AND error: {e}")
 
-        # OR fallback — uses kw only (no stop words), so "на*" never leaks in
-        if not rows and len(kw) > 1:
+        # OR supplement: run when AND returned very few results.
+        # Threshold=5: catches "увольнение беременной" (AND→3 non-TK docs, ст.54
+        # has "береме" but not "увольн" so AND missed it).
+        # Does NOT fire for "разлив нефти" (AND→6) where OR would flood results
+        # with hundreds of Земельный кодекс land-tenure articles via "земл*".
+        if len(rows) < 5 and len(kw) > 1:
             fts_or = ' OR '.join(_stem(w) + '*' for w in kw)
             try:
                 cur.execute(f"""
@@ -157,34 +165,52 @@ def search_laws_in_db(query, law_filter="", page=1):
                     FROM laws_fts WHERE laws_fts MATCH ?
                     {law_clause} LIMIT {MAX_RESULTS}
                 """, [fts_or] + law_param)
-                rows = cur.fetchall()
+                for row in cur.fetchall():
+                    if row[0] not in seen_rowids:
+                        rows.append(row)
+                        seen_rowids.add(row[0])
             except Exception as e:
                 print(f"FTS OR error: {e}")
 
-    # LIKE fallback (FTS unavailable or empty)
+    # LIKE fallback (FTS unavailable)
     if not rows and kw:
         stems = [_stem(w) for w in kw]
-        parts = [f"LOWER(text_content) LIKE ?" for _ in stems]
-        params = [f"%{s}%" for s in stems] + law_param
-        if law_filter:
-            parts.append("LOWER(law_name) LIKE ?")
+        extra_parts = ["LOWER(law_name) LIKE ?"] if law_filter else []
+        extra_params = law_param[:]
+
+        # AND
+        parts = [f"LOWER(text_content) LIKE ?" for _ in stems] + extra_parts
+        params = [f"%{s}%" for s in stems] + extra_params
         cur.execute(f"""
             SELECT rowid, law_name, article_num, text_content
             FROM laws WHERE {' AND '.join(parts)} LIMIT {MAX_RESULTS}
         """, params)
-        rows = cur.fetchall()
+        for row in cur.fetchall():
+            if row[0] not in seen_rowids:
+                rows.append(row)
+                seen_rowids.add(row[0])
+
+        # OR supplement: same threshold as FTS path
+        if len(rows) < 5 and len(stems) > 1:
+            or_parts = [f"LOWER(text_content) LIKE ?" for _ in stems] + extra_parts
+            or_params = [f"%{s}%" for s in stems] + extra_params
+            cur.execute(f"""
+                SELECT rowid, law_name, article_num, text_content
+                FROM laws WHERE {' OR '.join(or_parts)} LIMIT {MAX_RESULTS}
+            """, or_params)
+            for row in cur.fetchall():
+                if row[0] not in seen_rowids:
+                    rows.append(row)
+                    seen_rowids.add(row[0])
 
     for rowid, law_name, article_num, text_content in rows:
-        if rowid not in seen_ids:
-            # Score with kw: stop words excluded so "на" doesn't inflate counts
-            score = _score(text_content, article_num, law_name, kw)
-            results.append({
-                "law_name": law_name,
-                "article_num": article_num,
-                "text_content": text_content,
-                "score": score
-            })
-            seen_ids.add(rowid)
+        score = _score(text_content, article_num, law_name, kw)
+        results.append({
+            "law_name": law_name,
+            "article_num": article_num,
+            "text_content": text_content,
+            "score": score
+        })
 
     conn.close()
     results.sort(key=lambda x: x["score"], reverse=True)
@@ -239,13 +265,13 @@ def search_api():
     data = search_laws_in_db(query, law_filter, page)
     corrected_query = None
 
-    # Trigger AI expansion when results are few, not just zero.
-    # Threshold = 5: catches cases like "разлив нефти на землю" which after stemming
-    # returns a handful of results but misses ст.337 (text says "опасными химическими",
-    # not "нефть"). Only expand for multi-word queries (single words already did OR).
+    # AI expansion: only when search genuinely found almost nothing.
+    # Threshold = 3 (not 5): the OR supplement now runs inside search_laws_in_db
+    # when AND < 10, so "увольнение беременной" already gets ст.54/99 via OR.
+    # AI fires only when even OR couldn't find relevant articles.
     meaningful_words = [w for w in query.lower().split()
                         if w not in _STOP_WORDS and len(w) >= 3]
-    if data["total"] < 5 and len(meaningful_words) >= 2:
+    if data["total"] < 3 and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
             syn_data = search_laws_in_db(synonyms, law_filter, 1)
