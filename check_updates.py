@@ -1,6 +1,13 @@
-"""Check if laws in the DB are up-to-date by comparing dates on adilet.zan.kz."""
-import sys, re, sqlite3, time
+"""
+Law update checker: compare revision dates in our DB against adilet.zan.kz.
+
+Usage:
+    python check_updates.py          — print report to stdout
+    from check_updates import run_check  — returns structured dict (for Flask)
+"""
+import os, re, sys, sqlite3, time
 sys.stdout.reconfigure(encoding='utf-8')
+
 try:
     import requests
     requests.packages.urllib3.disable_warnings()
@@ -10,59 +17,68 @@ except ImportError:
     USE_REQUESTS = False
 
 DB_PATH = "laws_database.db"
+ADILET   = "https://adilet.zan.kz/rus/docs/"
 
-# Map of law keywords -> (adilet doc ID, human name)
+# (adilet_id, db_search_keyword, display_name)
 LAWS_TO_CHECK = [
-    # (adilet_id, db_search_keyword, display_name)
     # Кодексы
-    ("k1500000414", "Трудовой кодекс",              "Трудовой кодекс"),
-    ("k0300000442", "Земельный кодекс",              "Земельный кодекс"),
-    ("k9400000268", "Гражданский кодекс%Общ",        "ГК (общая часть)"),
-    ("k9900000409", "Гражданский кодекс%Особ",       "ГК (особенная часть)"),
-    ("k2500000178", "Водный кодекс",                 "Водный кодекс"),
-    ("k2100000400", "Экологический кодекс",          "Экологический кодекс"),
-    ("k1700000125", "недрах и недропользовании",     "Кодекс о недрах"),
-    ("k1400000235", "КоАП",                          "КоАП"),
-    ("k2500000214", "Налоговый кодекс",              "Налоговый кодекс"),
+    ("k1500000414", "Трудовой кодекс",          "Трудовой кодекс"),
+    ("k0300000442", "Земельный кодекс",          "Земельный кодекс"),
+    ("k9400000268", "Гражданский кодекс%Общ",    "ГК (общая часть)"),
+    ("k9900000409", "Гражданский кодекс%Особ",   "ГК (особенная часть)"),
+    ("k2100000400", "Экологический кодекс",      "Экологический кодекс"),
+    ("k1700000125", "недрах и недропользовании", "Кодекс о недрах"),
+    ("k1400000235", "КоАП",                      "КоАП"),
+    ("k2500000214", "Налоговый кодекс",          "Налоговый кодекс"),
     # Конституция
-    ("k9500001000", "Конституция",                   "Конституция"),
+    ("k9500001000", "Конституция",               "Конституция"),
     # Законы
-    ("z1400000188", "гражданской защите",            "О гражданской защите"),
-    ("z1400000202", "разрешениях",                   "О разрешениях"),
-    ("z1600000442", "атомной энергии",               "Об атомной энергии"),
-    # Ведомственные НПА (ID из имён файлов)
-    ("v1500011779", "опасных грузов",                "Правила пер. опасных грузов"),
-    ("v2100024045", "пожарной безопасности",         "Пожарный регламент"),
-    ("v2100026341", "коммунальными отходами",        "Правила ком. отходов"),
-    ("v2300033003", "дорожного движения",            "ПДД"),
+    ("z1400000188", "гражданской защите",        "О гражданской защите"),
+    ("z1400000202", "разрешениях",               "О разрешениях"),
+    ("z1600000442", "атомной энергии",           "Об атомной энергии"),
+    # Ведомственные НПА
+    ("v1500011779", "опасных грузов",            "Правила пер. опасных грузов"),
+    ("v2100024045", "пожарной безопасности",     "Пожарный регламент"),
+    ("v2100026341", "коммунальными отходами",    "Правила ком. отходов"),
+    ("v2300033003", "дорожного движения",        "ПДД"),
 ]
 
-DATE_RE     = re.compile(r'(\d{2}\.\d{2}\.\d{4})')
-CURRENT_RE  = re.compile(r'по состоянию на[:\s]*<[^>]+>(\d{2}\.\d{2}\.\d{4})', re.IGNORECASE)
+DATE_RE      = re.compile(r'(\d{2}\.\d{2}\.\d{4})')
+REDACTION_RE = re.compile(r'ред\.\s*(\d{2}\.\d{2}\.\d{4})', re.IGNORECASE)
+
+# Patterns for "current revision date" on adilet.zan.kz, in order of specificity.
+# adilet pages show: "по состоянию на <b>12.03.2026</b>" or plain "по состоянию на 12.03.2026"
+_SITE_DATE_PATTERNS = [
+    re.compile(r'по состоянию на[:\s]*<[^>]+>(\d{2}\.\d{2}\.\d{4})', re.IGNORECASE),
+    re.compile(r'по состоянию на[:\s]+(\d{2}\.\d{2}\.\d{4})',         re.IGNORECASE),
+    re.compile(r'в редакции.{0,80}(\d{2}\.\d{2}\.\d{4})',            re.IGNORECASE),
+    re.compile(r'последнег[оо] изменени[яе][:\s]+(\d{2}\.\d{2}\.\d{4})', re.IGNORECASE),
+]
 
 _session = None
 
-def get_session():
+
+def _get_session():
     global _session
     if _session is None and USE_REQUESTS:
         _session = requests.Session()
         _session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+            ),
             'Accept-Language': 'ru-RU,ru;q=0.9',
             'Accept': 'text/html,application/xhtml+xml',
         })
     return _session
 
 
-def fetch_page(doc_id):
-    url = f"https://adilet.zan.kz/rus/docs/{doc_id.upper()}"
+def fetch_page(doc_id: str) -> tuple[str | None, str]:
+    url = ADILET + doc_id.upper()
     try:
         if USE_REQUESTS:
-            r = get_session().get(url, verify=False, timeout=20)
-            if r.status_code == 200:
-                return r.text, url
-            return None, url
+            r = _get_session().get(url, verify=False, timeout=20)
+            return (r.text if r.status_code == 200 else None), url
         else:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -74,107 +90,170 @@ def fetch_page(doc_id):
         return None, url
 
 
-def parse_latest_date(html):
-    """Extract 'по состоянию на: DD.MM.YYYY' — the authoritative current date."""
-    m = CURRENT_RE.search(html)
-    if m:
-        return m.group(1)
-    # Fallback: latest plausible date in the page
-    dates = []
-    for d in DATE_RE.findall(html):
+def parse_latest_date(html: str) -> str | None:
+    """
+    Extract the current revision date from an adilet.zan.kz document page.
+    Tries specific patterns first, then falls back to the header area only.
+    """
+    # 1. Try authoritative "по состоянию на" and related patterns
+    for pattern in _SITE_DATE_PATTERNS:
+        m = pattern.search(html)
+        if m:
+            return m.group(1)
+
+    # 2. Fallback: look only in the first 5 000 chars (document title/header area).
+    #    This avoids false positives from dates deep in the document text.
+    header = html[:5000]
+    candidates = []
+    for d in DATE_RE.findall(header):
         try:
             y = int(d.split('.')[2])
-            if 2015 <= y <= 2027:
-                dates.append(d)
+            if 2020 <= y <= 2030:
+                candidates.append(d)
         except Exception:
             pass
-    if not dates:
-        return None
-    return max(dates, key=lambda d: tuple(int(x) for x in reversed(d.split('.'))))
+    if candidates:
+        return max(candidates, key=lambda d: tuple(int(x) for x in reversed(d.split('.'))))
+
+    return None
 
 
-REDACTION_RE = re.compile(r'ред\.\s*(\d{2}\.\d{2}\.\d{4})', re.IGNORECASE)
+def _date_to_int(d: str | None) -> int:
+    """Convert 'DD.MM.YYYY' → integer YYYYMMDD for comparison. Returns 0 on failure."""
+    if not d or d == "нет даты":
+        return 0
+    try:
+        parts = d.split('.')
+        return int(parts[2]) * 10000 + int(parts[1]) * 100 + int(parts[0])
+    except Exception:
+        return 0
 
 
-def get_db_date(law_keyword):
-    """Extract the REVISION date from the law_name in the DB (prefer ред. date)."""
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT DISTINCT law_name FROM laws WHERE LOWER(law_name) LIKE LOWER(?)",
-        (f"%{law_keyword}%",)
-    )
-    rows = cur.fetchall()
-    conn.close()
+def get_db_date(keyword: str) -> tuple[str | None, str | None]:
+    """
+    Read the revision date of a law from the DB law_name field.
+    Returns (law_name, revision_date_string) or (None, None) if not found.
+    """
+    if not os.path.exists(DB_PATH):
+        return None, None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT law_name FROM laws WHERE LOWER(law_name) LIKE LOWER(?)",
+            (f"%{keyword}%",),
+        )
+        rows = cur.fetchall()
+        conn.close()
+    except Exception:
+        return None, None
+
     if not rows:
         return None, None
+
     law_name = rows[0][0]
-    # Prefer "(ред. DD.MM.YYYY)" — that's the amendment date
     m = REDACTION_RE.search(law_name)
     if m:
         return law_name, m.group(1)
-    # Fallback: any date in name
     m2 = DATE_RE.search(law_name)
-    return law_name, m2.group(0) if m2 else "нет даты"
+    return law_name, (m2.group(0) if m2 else "нет даты")
 
 
-def main():
-    print("Проверка актуальности законов на adilet.zan.kz\n")
-    print(f"{'Закон':<42} {'В базе':<12} {'На сайте':<12} {'Статус'}")
-    print("-" * 85)
-
-    needs_update = []
+def run_check() -> dict:
+    """
+    Check all tracked laws and return a structured report dict.
+    Keys: checked_at, needs_update, ok, errors, not_in_db
+    """
+    from datetime import date as _date
+    report = {
+        "checked_at": _date.today().isoformat(),
+        "needs_update": [],
+        "ok": [],
+        "errors": [],
+        "not_in_db": [],
+    }
 
     for doc_id, db_keyword, display_name in LAWS_TO_CHECK:
+        url = ADILET + doc_id.upper()
         law_name, db_date = get_db_date(db_keyword)
+
         if not law_name:
-            print(f"{display_name:<42} {'НЕТ В БАЗЕ':<12} {'—':<12} ⚠")
+            report["not_in_db"].append({"name": display_name, "url": url})
+            time.sleep(0.5)
             continue
 
-        html, url = fetch_page(doc_id)
+        html, _ = fetch_page(doc_id)
         if not html:
-            print(f"{display_name:<42} {str(db_date):<12} {'ОШИБКА':<12} ?")
+            report["errors"].append({"name": display_name, "db_date": db_date, "url": url,
+                                     "error": "Не удалось загрузить страницу"})
             time.sleep(1)
             continue
 
         site_date = parse_latest_date(html)
         if not site_date:
-            print(f"{display_name:<42} {str(db_date):<12} {'не найдена':<12} ?")
+            report["errors"].append({"name": display_name, "db_date": db_date, "url": url,
+                                     "error": "Дата не найдена на странице"})
             time.sleep(1)
             continue
 
-        # Compare: convert dd.mm.yyyy to yyyymmdd for comparison
-        def to_int(d):
-            if not d or d == "нет даты":
-                return 0
-            p = d.split('.')
-            try:
-                return int(p[2]) * 10000 + int(p[1]) * 100 + int(p[0])
-            except Exception:
-                return 0
-
-        db_int   = to_int(db_date)
-        site_int = to_int(site_date)
-
-        if site_int > db_int:
-            status = "⬆ ОБНОВИТЬ"
-            needs_update.append((display_name, db_date, site_date, url))
-        elif site_int == db_int or db_int == 0:
-            status = "✓ актуально"
+        if _date_to_int(site_date) > _date_to_int(db_date):
+            report["needs_update"].append({
+                "name": display_name,
+                "db_date": db_date,
+                "site_date": site_date,
+                "url": url,
+            })
         else:
-            status = "✓ актуально"
+            report["ok"].append({
+                "name": display_name,
+                "db_date": db_date,
+                "site_date": site_date,
+            })
 
-        print(f"{display_name:<42} {str(db_date):<12} {site_date:<12} {status}")
-        time.sleep(0.8)   # polite delay
+        time.sleep(0.8)
 
-    if needs_update:
-        print(f"\n{'='*85}")
-        print(f"Нужно обновить ({len(needs_update)}):")
-        for name, old, new, url in needs_update:
-            print(f"  {name}: {old} → {new}")
-            print(f"    {url}")
+    return report
+
+
+def _print_report(report: dict):
+    w = 85
+    print(f"\n{'='*w}")
+    print(f"  ПРОВЕРКА АКТУАЛЬНОСТИ ЗАКОНОВ — {report['checked_at']}")
+    print(f"{'='*w}")
+    print(f"{'Закон':<42} {'В базе':<12} {'На сайте':<12} Статус")
+    print("-" * w)
+
+    for item in report.get("ok", []):
+        print(f"{item['name']:<42} {item['db_date']:<12} {item['site_date']:<12} ✓ актуально")
+
+    for item in report.get("needs_update", []):
+        print(f"{item['name']:<42} {item['db_date']:<12} {item['site_date']:<12} ⬆ ОБНОВИТЬ")
+
+    for item in report.get("errors", []):
+        print(f"{item['name']:<42} {item.get('db_date','?'):<12} {'ОШИБКА':<12} ? {item['error']}")
+
+    for item in report.get("not_in_db", []):
+        print(f"{item['name']:<42} {'НЕТ В БАЗЕ':<12} {'—':<12} ⚠")
+
+    needs = report.get("needs_update", [])
+    if needs:
+        print(f"\n{'='*w}")
+        print(f"Нужно обновить ({len(needs)}):")
+        for item in needs:
+            print(f"  • {item['name']}: {item['db_date']} → {item['site_date']}")
+            print(f"    {item['url']}")
     else:
-        print("\nВсе законы актуальны!")
+        print("\nВсе законы в базе актуальны!")
+    print(f"{'='*w}\n")
+
+
+def main():
+    print("Проверяю актуальность законов на adilet.zan.kz...")
+    report = run_check()
+    _print_report(report)
+    # Exit non-zero if outdated laws found (triggers GitHub Actions failure → email)
+    if report["needs_update"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

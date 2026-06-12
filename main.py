@@ -226,6 +226,20 @@ def search_api():
     )
 
 
+@app.route("/api/check-updates")
+def check_updates_api():
+    token = request.args.get("token", "")
+    expected = os.environ.get("CHECK_TOKEN", "")
+    if expected and token != expected:
+        return jsonify({"error": "Unauthorized"}), 401
+    from check_updates import run_check
+    report = run_check()
+    return Response(
+        json.dumps(report, ensure_ascii=False),
+        mimetype='application/json; charset=utf-8'
+    )
+
+
 @app.route("/api/reformulate", methods=["POST"])
 def reformulate_api():
     data = request.get_json()
