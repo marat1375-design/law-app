@@ -71,15 +71,12 @@ PER_PAGE = 10
 MAX_RESULTS = 200
 
 def _ai_synonyms(query):
-    """Expand query with legally equivalent terms from RK environmental/admin law.
+    """Expand query with legally equivalent terms from RK legislation.
 
-    Designed to bridge colloquial descriptions to statutory language, e.g.:
+    Bridges colloquial descriptions to statutory language across all legal
+    domains (ecology, labor, civil, land, tax, admin), e.g.:
       'разлив нефти на землю' → 'загрязнение земли опасными'
-    so that ст.337 КоАП ('Порча земли') is found even when the word 'нефть'
-    does not appear in the article text.
-
-    Prompt restricts output to ЭкоКодекс/КоАП vocabulary and limits to 3 words
-    so FTS5 AND doesn't become overly restrictive.
+      'увольнение беременной' → 'расторжение трудового договора'
     """
     try:
         client = anthropic.Anthropic()
@@ -87,16 +84,22 @@ def _ai_synonyms(query):
             model="claude-haiku-4-5-20251001",
             max_tokens=30,
             system=(
-                "Ты — инспектор экологического контроля РК. "
-                "Для нарушения дай ровно 3 слова из Экологического кодекса или КоАП РК. "
-                "Запрещено: налоговые термины, нефтепродукты, ГСМ, коммерческие термины. "
-                "Примеры: 'разлив нефти на землю' → 'загрязнение земли опасными'; "
-                "'слив в реку' → 'сброс загрязняющих веществ'. "
-                "Только 3 слова через пробел."
+                "Задача: для поискового запроса верни ровно 3 юридических слова "
+                "из законодательства РК, которыми это понятие описывается в текстах законов. "
+                "Ответ — только 3 слова через пробел, без пояснений, без предложений. "
+                "Примеры: "
+                "'разлив нефти' → 'загрязнение земли опасными'; "
+                "'увольнение' → 'расторжение трудового договора'; "
+                "'арест имущества' → 'наложение ареста взыскание'."
             ),
             messages=[{"role": "user", "content": query}]
         )
-        return msg.content[0].text.strip()
+        result = msg.content[0].text.strip()
+        # Reject refusals: valid keywords are ≤5 words with no sentence punctuation
+        words = result.split()
+        if len(words) > 5 or any(c in result for c in '.!?:;') or (words and words[0].lower() == 'я'):
+            return None
+        return result
     except Exception:
         return None
 
