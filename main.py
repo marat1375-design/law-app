@@ -33,7 +33,7 @@ def _stem(w):
 _STOP_WORDS = frozenset({
     "на", "в", "во", "из", "к", "ко", "с", "со", "по", "за", "о", "об",
     "при", "от", "до", "под", "над", "без", "у", "для", "а", "и", "но",
-    "или", "что", "как", "это", "не", "же", "ли", "бы", "то", "ни",
+    "или", "что", "как", "это", "не", "нет", "же", "ли", "бы", "то", "ни",
     "их", "им", "его", "её", "он", "она", "они", "мы", "вы", "я",
 })
 
@@ -286,8 +286,12 @@ def search_api():
             syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True)
             if syn_data["total"] > 0:
                 corrected_query = synonyms
-                if data["total"] == 0:
-                    # No original results at all — use synonyms outright
+                if data["total"] < 4:
+                    # Very few original results (likely noise from OR fallback) —
+                    # use synonyms outright. Covers total==0 and cases like
+                    # "не выдали зарплату" where 3 irrelevant ГК/Приказ articles
+                    # appear but ТК salary articles are filtered by re-score
+                    # (ТК uses 'заработная плата', query used colloquial 'зарплата').
                     data = syn_data
                 else:
                     # Re-score AI results against original query keywords.
