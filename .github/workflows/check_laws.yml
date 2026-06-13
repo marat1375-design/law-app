@@ -2,7 +2,7 @@ name: Weekly law update check
 
 on:
   schedule:
-    - cron: '0 6 * * 1'   # Каждый понедельник в 06:00 UTC (09:00 Астана)
+    - cron: '0 21 * * 0'  # Каждое воскресенье в 21:00 UTC (понедельник 02:00 Астана, UTC+5)
   workflow_dispatch:        # Ручной запуск из GitHub UI
 
 jobs:
