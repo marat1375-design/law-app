@@ -253,9 +253,9 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     results.sort(key=lambda x: x["score"], reverse=True)
     total = len(results)
     if fetch_all:
-        return {"total": total, "items": results, "and_total": and_count}
+        return {"total": total, "items": results, "and_total": and_count, "kw": kw}
     offset = (page - 1) * PER_PAGE
-    return {"total": total, "items": results[offset:offset + PER_PAGE], "and_total": and_count}
+    return {"total": total, "items": results[offset:offset + PER_PAGE], "and_total": and_count, "kw": kw}
 
 
 @app.route("/")

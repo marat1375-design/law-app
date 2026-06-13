@@ -162,6 +162,14 @@ def main():
         total_added += len(rows)
 
     conn.commit()
+
+    # Rebuild FTS5 index so search stays in sync after row deletions/insertions.
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='laws_fts'")
+    if cur.fetchone():
+        cur.execute("INSERT INTO laws_fts(laws_fts) VALUES('rebuild')")
+        conn.commit()
+        print("FTS5 index rebuilt")
+
     conn.close()
     print(f"\n=== Итого: удалено {total_deleted}, добавлено {total_added} записей ===")
 

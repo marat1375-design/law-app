@@ -51,6 +51,12 @@ def main():
         rows
     )
     conn.commit()
+
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='laws_fts'")
+    if cur.fetchone():
+        cur.execute("INSERT INTO laws_fts(laws_fts) VALUES('rebuild')")
+        conn.commit()
+
     conn.close()
 
     print(f"Добавлено новых записей: {len(rows)}")

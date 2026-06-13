@@ -511,6 +511,7 @@
     const texts = {};
     const previews = {};
     let lastResults = [];
+    let currentStems = [];
     const PREVIEW_LEN = 500;
     const MAX_LEN = 8000;
     const PER_PAGE = 10;
@@ -528,27 +529,34 @@
 
     function stemOf(w) {
         return w.length >= 9 ? w.slice(0, 6) :
-               w.length >= 6 ? w.slice(0, 5) : w;
+               w.length >= 6 ? w.slice(0, 5) :
+               w.length === 5 ? w.slice(0, 4) : w;
     }
 
-    function highlight(text, query) {
+    // Build highlight stems: use backend lemmas (kw) when available,
+    // fall back to frontend stemOf() on raw query words.
+    function toStems(query, kw) {
+        if (kw && kw.length) return kw.map(w => stemOf(w));
+        if (!query) return [];
+        return query.trim().split(/\s+/).filter(Boolean).map(stemOf);
+    }
+
+    function highlight(text, query, kw) {
         const safe = escHtml(text);
-        if (!query) return safe;
-        const words = query.trim().split(/\s+/).filter(Boolean);
-        const pattern = words.map(w => {
-            const stem = stemOf(w);
-            const escaped = stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            return escaped + (w.length >= 4 ? '[а-яёА-ЯЁa-zA-Z]*' : '');
-        }).join('|');
+        const stems = toStems(query, kw);
+        if (!stems.length) return safe;
+        const pattern = stems.map(s =>
+            s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[а-яёА-ЯЁa-zA-Z]*'
+        ).join('|');
         return safe.replace(new RegExp(pattern, 'gi'), m => `<span class="highlight">${m}</span>`);
     }
 
-    function getSnippet(text, query, len) {
-        const words = query.trim().split(/\s+/).filter(Boolean);
+    function getSnippet(text, query, len, kw) {
+        const stems = toStems(query, kw);
         const lower = text.toLowerCase();
         let best = -1;
-        for (const w of words) {
-            const idx = lower.indexOf(stemOf(w).toLowerCase());
+        for (const s of stems) {
+            const idx = lower.indexOf(s.toLowerCase());
             if (idx !== -1 && (best === -1 || idx < best)) best = idx;
         }
         if (best === -1) return text.substring(0, len) + (text.length > len ? '...' : '');
@@ -557,14 +565,14 @@
         return (start > 0 ? '...' : '') + text.substring(start, end) + (end < text.length ? '...' : '');
     }
 
-    function getSnippets(text, query, maxCount) {
-        const words = query.trim().split(/\s+/).filter(Boolean);
+    function getSnippets(text, query, maxCount, kw) {
+        const stems = toStems(query, kw);
         const lower = text.toLowerCase();
         const positions = [];
-        for (const w of words) {
-            const stem = stemOf(w).toLowerCase();
+        for (const s of stems) {
+            const sl = s.toLowerCase();
             let idx = 0;
-            while ((idx = lower.indexOf(stem, idx)) !== -1) { positions.push(idx); idx++; }
+            while ((idx = lower.indexOf(sl, idx)) !== -1) { positions.push(idx); idx++; }
         }
         if (!positions.length) return [text.substring(0, 300) + (text.length > 300 ? '...' : '')];
         positions.sort((a, b) => a - b);
@@ -582,13 +590,14 @@
         );
     }
 
-    function countHits(text, query) {
+    function countHits(text, query, kw) {
+        const stems = toStems(query, kw);
         const lower = text.toLowerCase();
         let n = 0;
-        for (const w of query.trim().split(/\s+/).filter(Boolean)) {
-            const stem = stemOf(w).toLowerCase();
+        for (const s of stems) {
+            const sl = s.toLowerCase();
             let idx = 0;
-            while ((idx = lower.indexOf(stem, idx)) !== -1) { n++; idx++; }
+            while ((idx = lower.indexOf(sl, idx)) !== -1) { n++; idx++; }
         }
         return n;
     }
@@ -776,20 +785,23 @@
             countEl.innerHTML = `Найдено: ${currentTotal} статей — показаны ${from}–${to}`;
 
             const effectiveQuery = data.corrected_query || query;
+            // Use backend lemmas (data.kw) for accurate highlighting of all word forms.
+            // Falls back to frontend stemOf(effectiveQuery) when kw not available.
+            currentStems = data.kw || [];
             data.items.forEach((item, index) => {
                 lastResults[index] = item;
                 const full = item.text_content.length > MAX_LEN
                     ? item.text_content.substring(0, MAX_LEN) + '...'
                     : item.text_content;
                 texts[index] = full;
-                const hits = countHits(full, effectiveQuery);
+                const hits = countHits(full, effectiveQuery, currentStems);
                 let previewHtml;
                 if (hits > 2) {
-                    const snips = getSnippets(full, effectiveQuery, 3);
-                    previewHtml = snips.map(s => highlight(s, effectiveQuery))
+                    const snips = getSnippets(full, effectiveQuery, 3, currentStems);
+                    previewHtml = snips.map(s => highlight(s, effectiveQuery, currentStems))
                         .join('<div class="snip-sep">• • •</div>');
                 } else {
-                    previewHtml = highlight(getSnippet(full, effectiveQuery, PREVIEW_LEN), effectiveQuery);
+                    previewHtml = highlight(getSnippet(full, effectiveQuery, PREVIEW_LEN, currentStems), effectiveQuery, currentStems);
                 }
                 previews[index] = previewHtml;
                 const saved = isBookmarked(item);
@@ -800,7 +812,7 @@
                     <div class="article-num">${escHtml(item.article_num)}</div>
                     <div class="law-text" id="text-${index}">${previewHtml}</div>
                     <div class="btn-row">
-                        <button class="read-more" id="btn-${index}" onclick="toggleText(${index}, '${effectiveQuery.replace(/'/g, "\\'")}')">Читать полностью</button>
+                        <button class="read-more" id="btn-${index}" onclick="toggleText(${index})">Читать полностью</button>
                         <button class="copy-btn" id="copy-${index}" onclick="copyText(${index})">📋 Копировать</button>
                         <button class="bookmark-btn${saved ? ' saved' : ''}" id="bk-${index}" onclick="toggleBookmark(${index})">${saved ? '★ Сохранено' : '🔖 Сохранить'}</button>
                         <button class="explain-btn" id="explain-btn-${index}" onclick="explainArticle(${index})">🤖 Объяснить</button>
@@ -877,14 +889,14 @@
 
     // ── Card actions ──────────────────────────────────────────────────────────
 
-    function toggleText(index, query) {
+    function toggleText(index) {
         const el  = document.getElementById('text-' + index);
         const btn = document.getElementById('btn-' + index);
         if (btn.innerText === 'Читать полностью') {
-            el.innerHTML = highlight(texts[index], query);
+            el.innerHTML = highlight(texts[index], '', currentStems);
             btn.innerText = 'Свернуть';
         } else {
-            el.innerHTML = previews[index] || highlight(getSnippet(texts[index], query, PREVIEW_LEN), query);
+            el.innerHTML = previews[index] || highlight(getSnippet(texts[index], '', PREVIEW_LEN, currentStems), '', currentStems);
             btn.innerText = 'Читать полностью';
         }
     }
