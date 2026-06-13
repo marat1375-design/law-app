@@ -59,6 +59,16 @@ _STOP_WORDS = frozenset({
     "их", "им", "его", "её", "он", "она", "они", "мы", "вы", "я",
 })
 
+_EXPAND_MAP: dict[str, list[str]] = {
+    "зарплата":  ["заработная", "плата"],
+    "зарплаты":  ["заработная", "плата"],
+    "зарплате":  ["заработная", "плата"],
+    "зарплату":  ["заработная", "плата"],
+    "зарплатой": ["заработная", "плата"],
+    "зарплатам": ["заработная", "плата"],
+    "зарплат":   ["заработная", "плата"],
+}
+
 
 _fts_ready = False
 
@@ -132,7 +142,7 @@ def _score(text, article_num, law_name, words, exact=True):
     hits = sum(text_lower.count(_stem(w)) for w in words)
     if hits == 0:
         return 0
-    k1, b, avgdl = 1.5, 0.75, 5000
+    k1, b, avgdl = 1.5, 0.75, 8000
     tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl))
     title_words = re.findall(r'[а-яёa-z]+', article_num.lower())
     title = sum(4 for w in words
@@ -151,6 +161,10 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     all_words = [w for w in query.lower().split() if w]
+    expanded = []
+    for w in all_words:
+        expanded.extend(_EXPAND_MAP.get(w, [w]))
+    all_words = expanded
 
     # Keywords: stop-words and single-char tokens removed, then lemmatised.
     # Lemmatising before stemming gives better FTS prefixes, e.g.:
@@ -170,6 +184,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     rows = []
     seen_rowids = set()
     and_count = 0
+    and_rowids: set[int] = set()
 
     if _fts_ready and kw:
         # AND: every keyword stem must appear in the document
@@ -185,6 +200,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
                     rows.append(row)
                     seen_rowids.add(row[0])
             and_count = len(rows)
+            and_rowids = {row[0] for row in rows}
         except Exception as e:
             print(f"FTS AND error: {e}")
 
@@ -226,6 +242,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
                 rows.append(row)
                 seen_rowids.add(row[0])
         and_count = len(rows)
+        and_rowids = {row[0] for row in rows}
 
         # OR supplement: same threshold as FTS path
         if len(rows) < 5 and len(stems) > 1:
@@ -241,7 +258,7 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
                     seen_rowids.add(row[0])
 
     for rowid, law_name, article_num, text_content in rows:
-        score = _score(text_content, article_num, law_name, kw)
+        score = _score(text_content, article_num, law_name, kw, exact=(rowid in and_rowids))
         results.append({
             "law_name": law_name,
             "article_num": article_num,
