@@ -3,8 +3,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 from docx import Document
 
 DB_PATH = "laws_database.db"
-DOCX_PATH = "k1500000414.19-05-2026.rus.docx"
-LAW_NAME = "Трудовой кодекс РК от 23.11.2015 № 414-V (ред. 19.05.2026)"
+DOCX_PATH = "k1500000414.11-06-2026.rus.docx"
+LAW_NAME = "Трудовой кодекс РК от 23.11.2015 № 414-V (ред. 11.06.2026)"
 
 ARTICLE_RE = re.compile(r'^Статья \d+[\-\d]*\.')
 
