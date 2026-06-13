@@ -59,7 +59,14 @@ _STOP_WORDS = frozenset({
     "их", "им", "его", "её", "он", "она", "они", "мы", "вы", "я",
 })
 
+# Detects "Статья 44", "ст. 44", "ст.44-1" in queries for direct article lookup.
+_ARTICLE_NUM_RE = re.compile(
+    r'\b(?:стать[яию]|ст\.?)\s*(\d+(?:[-\.]\d+)?)',
+    re.IGNORECASE
+)
+
 _EXPAND_MAP: dict[str, list[str]] = {
+    # Colloquial → legal: зарплата → заработная плата (zero overlap in legal texts)
     "зарплата":  ["заработная", "плата"],
     "зарплаты":  ["заработная", "плата"],
     "зарплате":  ["заработная", "плата"],
@@ -67,6 +74,14 @@ _EXPAND_MAP: dict[str, list[str]] = {
     "зарплатой": ["заработная", "плата"],
     "зарплатам": ["заработная", "плата"],
     "зарплат":   ["заработная", "плата"],
+    # Abbreviations → full law name fragments (for article-num search like "ст. 44 УПК")
+    "упк": ["уголовно-процессуальный", "кодекс"],
+    "гк":  ["гражданский", "кодекс"],
+    "ук":  ["уголовный", "кодекс"],
+    "тк":  ["трудовой", "кодекс"],
+    "нк":  ["налоговый", "кодекс"],
+    "пк":  ["предпринимательский", "кодекс"],
+    "экк": ["экологический", "кодекс"],
 }
 
 
@@ -139,28 +154,44 @@ def _ai_synonyms(query):
 def _score(text, article_num, law_name, words, exact=True):
     char_count = max(len(text), 1)
     text_lower = text.lower()
+    law_l = law_name.lower()
     hits = sum(text_lower.count(_stem(w)) for w in words)
-    if hits == 0:
+    # Law-name keyword bonus: when query keywords appear in the law's name itself,
+    # it's a strong signal that this law specifically covers the topic.
+    # Example: "права потребителя" → "потреб" in "О защите прав потребителей" → +2
+    # Example: "ст.44 КоАП" → "коап" in "КоАП РК" → +2 (disambiguates among ст.44 across laws)
+    law_name_hits = sum(2.0 for w in words if len(w) >= 3 and _stem(w) in law_l)
+    if hits == 0 and law_name_hits == 0:
         return 0
     k1, b, avgdl = 1.5, 0.75, 8000
-    tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl))
+    tf = hits * (k1 + 1) / (hits + k1 * (1 - b + b * char_count / avgdl)) if hits else 0
     title_words = re.findall(r'[а-яёa-z]+', article_num.lower())
     title = sum(4 for w in words
                 if any(tw.startswith(_stem(w)) and len(tw) <= len(_stem(w)) + 5
                        for tw in title_words))
-    law_l = law_name.lower()
     hier = (0.5 if 'конституция' in law_l else
             0.4 if 'кодекс' in law_l or 'коап' in law_l else
             0.3 if 'закон' in law_l else
             0.2 if 'правила' in law_l else
             0.1 if 'приказ' in law_l else 0)
-    return (tf + title + hier) * (1 if exact else 0.6)
+    return (tf + title + law_name_hits + hier) * (1 if exact else 0.6)
 
 
 def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    all_words = [w for w in query.lower().split() if w]
+    # Detect article-number pattern before expansion/lemmatization.
+    # Removes the matched span (e.g., "ст. 44" / "Статья 134-2") from the
+    # query so remaining words become regular keyword filters.
+    art_match = _ARTICLE_NUM_RE.search(query)
+    art_prefix = None
+    if art_match:
+        art_prefix = f'Статья {art_match.group(1)}'
+        clean_query = query[:art_match.start()] + query[art_match.end():]
+        all_words = [w for w in clean_query.lower().split() if w]
+    else:
+        all_words = [w for w in query.lower().split() if w]
+
     expanded = []
     for w in all_words:
         expanded.extend(_EXPAND_MAP.get(w, [w]))
@@ -257,8 +288,34 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
                     rows.append(row)
                     seen_rowids.add(row[0])
 
+    # Article-number direct lookup: if query contained "ст. N" or "Статья N",
+    # fetch those rows and mark as exact hits so they score highest.
+    # Precise suffix matching prevents "Статья 44" matching "Статья 442".
+    if art_prefix:
+        p = art_prefix
+        cur.execute(f"""
+            SELECT rowid, law_name, article_num, text_content FROM laws
+            WHERE (article_num LIKE ? OR article_num LIKE ? OR
+                   article_num LIKE ? OR article_num = ?) {law_clause}
+            LIMIT 50
+        """, [f'{p}.%', f'{p}-%', f'{p} %', p] + law_param)
+        for row in cur.fetchall():
+            if row[0] not in seen_rowids:
+                rows.insert(0, row)
+                seen_rowids.add(row[0])
+                and_rowids.add(row[0])
+
+    def _is_art_match(article_num):
+        if not art_prefix or not article_num.startswith(art_prefix):
+            return False
+        rest = article_num[len(art_prefix):]
+        return rest == '' or rest[0] in '.– -'
+
     for rowid, law_name, article_num, text_content in rows:
-        score = _score(text_content, article_num, law_name, kw, exact=(rowid in and_rowids))
+        score = _score(text_content, article_num, law_name, kw,
+                       exact=(rowid in and_rowids))
+        if _is_art_match(article_num):
+            score += 50.0
         results.append({
             "law_name": law_name,
             "article_num": article_num,
