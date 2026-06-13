@@ -273,6 +273,24 @@ def sw():
     return send_file("sw.js", mimetype="application/javascript")
 
 
+_stats_cache: dict | None = None
+
+@app.route("/api/stats")
+def stats_api():
+    global _stats_cache
+    if _stats_cache is None:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*), COUNT(DISTINCT law_name) FROM laws")
+        articles, laws = cur.fetchone()
+        conn.close()
+        _stats_cache = {"articles": articles, "laws": laws}
+    return Response(
+        json.dumps(_stats_cache, ensure_ascii=False),
+        mimetype="application/json; charset=utf-8"
+    )
+
+
 @app.route("/api/suggest")
 def suggest_api():
     q = request.args.get("q", "").strip().lower()
