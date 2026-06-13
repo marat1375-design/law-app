@@ -6,6 +6,14 @@ import urllib.request
 import anthropic
 from flask import Flask, render_template_string, request, jsonify, Response, send_file, stream_with_context
 
+try:
+    import pymorphy3 as _pymorphy3
+    _morph = _pymorphy3.MorphAnalyzer()
+    print("pymorphy3 ready")
+except ImportError:
+    _morph = None
+    print("pymorphy3 not available — using truncation stemmer")
+
 app = Flask(__name__)
 
 DB_PATH = "laws_database.db"
@@ -27,6 +35,20 @@ def _stem(w):
     if len(w) >= 6: return w[:5]
     if len(w) == 5: return w[:4]
     return w
+
+
+def _lemma(w):
+    """Return dictionary (base) form of a Russian word via pymorphy3.
+    Falls back to _stem() when pymorphy3 is unavailable.
+    Lemmatising before stemming gives better FTS prefixes:
+      касок → каска → каск* (catches каска/каски/касок)
+      vs raw  касок → касо* (only catches касок).
+    """
+    if _morph:
+        p = _morph.parse(w)
+        if p:
+            return p[0].normal_form
+    return _stem(w)
 
 
 # Prepositions, conjunctions, pronouns that add noise to multi-word queries.
@@ -130,11 +152,14 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     cur = conn.cursor()
     all_words = [w for w in query.lower().split() if w]
 
-    # Keywords: stop-words and single-char tokens removed.
-    # FTS queries and scoring use kw so that "на*" never pollutes results.
-    kw = [w for w in all_words if w not in _STOP_WORDS and len(w) >= 3]
-    if not kw:
-        kw = [w for w in all_words if len(w) >= 2]  # last resort
+    # Keywords: stop-words and single-char tokens removed, then lemmatised.
+    # Lemmatising before stemming gives better FTS prefixes, e.g.:
+    #   касок → каска → каск* (catches каска/каски/каской/касок)
+    #   нефти → нефть → нефт* (same breadth, cleaner root)
+    kw_raw = [w for w in all_words if w not in _STOP_WORDS and len(w) >= 3]
+    if not kw_raw:
+        kw_raw = [w for w in all_words if len(w) >= 2]  # last resort
+    kw = [_lemma(w) for w in kw_raw]
 
     results = []
     seen_ids = set()
@@ -287,20 +312,19 @@ def search_api():
     meaningful_words = [w for w in query.lower().split()
                         if w not in _STOP_WORDS and len(w) >= 3]
     and_total = data.get("and_total", 1)
-    # Fire AI when: too few results OR AND found nothing (query needs semantic expansion,
-    # e.g. "штраф за нет касок" — AND("штра* касо*")=0 but OR floods 200 штраф articles).
-    if (data["total"] < 10 or and_total == 0) and len(meaningful_words) >= 2:
+    # Fire AI when: too few results OR AND is near-empty (query needs semantic expansion).
+    # and_total <= 1: with pymorphy3, "касок"→"каск*" now gets and_total=1 instead of 0,
+    # but 1 AND result still drowns in OR-flood (e.g. 201 штраф articles from КоАП/НК).
+    if (data["total"] < 10 or and_total <= 1) and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
             syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True)
             if syn_data["total"] > 0:
                 corrected_query = synonyms
-                if data["total"] < 4 or and_total == 0:
-                    # Very few original results (likely noise from OR fallback) —
-                    # use synonyms outright. Covers total==0 and cases like
-                    # "не выдали зарплату" where 3 irrelevant ГК/Приказ articles
-                    # appear but ТК salary articles are filtered by re-score
-                    # (ТК uses 'заработная плата', query used colloquial 'зарплата').
+                if data["total"] < 4 or and_total <= 1:
+                    # Very few original results or AND near-miss → use synonyms outright.
+                    # and_total <= 1: pymorphy3 "касок"→"каск*" gets and_total=1, but
+                    # 201 OR штраф articles still drown it; AI REPLACE produces cleaner results.
                     data = syn_data
                 else:
                     # Re-score AI results against original query keywords.
@@ -309,7 +333,7 @@ def search_api():
                     # original query (e.g. "загрязнение химическими" appears
                     # 30+ times in ДСМ sanitary rules, drowning out ст.337).
                     # ст.337 has "земл"×4 from "разлив нефти на ЗЕМЛЮ" → passes.
-                    orig_kw = [w for w in query.lower().split()
+                    orig_kw = [_lemma(w) for w in query.lower().split()
                                if w not in _STOP_WORDS and len(w) >= 3]
                     seen = {(i["law_name"], i["article_num"]) for i in data["items"]}
                     new_items = []
