@@ -217,6 +217,20 @@
             padding: 1px 7px; margin-left: 6px; line-height: 1.5;
         }
 
+        /* ── Date filter chips ────────────────────────────────────── */
+        .date-filter-row {
+            display: flex; align-items: center; gap: 6px;
+            margin-bottom: 6px; flex-wrap: wrap;
+        }
+        .date-filter-label { font-size: 12px; color: #4A6E8A; white-space: nowrap; }
+        .date-chip {
+            font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer;
+            border: 1px solid rgba(0,175,202,0.25); background: transparent; color: #90B8D8;
+            transition: all 0.15s; white-space: nowrap;
+        }
+        .date-chip:hover { border-color: #00AFCA; color: #D8E8F5; }
+        .date-chip.active { background: #00AFCA; color: #0A1F35; border-color: #00AFCA; font-weight: 600; }
+
         /* ── History ──────────────────────────────────────────────── */
         .history { margin-bottom: 12px; font-size: 13px; color: #3A607A; }
         .history span {
@@ -534,6 +548,14 @@
             </div>
         </div>
 
+        <div class="date-filter-row">
+            <span class="date-filter-label">📅 Редакция:</span>
+            <button class="date-chip active" data-year="" onclick="setDateFilter(this)">Любая</button>
+            <button class="date-chip" data-year="2026" onclick="setDateFilter(this)">2026</button>
+            <button class="date-chip" data-year="2025" onclick="setDateFilter(this)">≥ 2025</button>
+            <button class="date-chip" data-year="2024" onclick="setDateFilter(this)">≥ 2024</button>
+        </div>
+
         <div id="count"></div>
         <div id="fuzzy-note"></div>
         <div id="ai-actions"></div>
@@ -618,6 +640,25 @@
         getFilterCheckboxes().forEach(cb => { cb.checked = values.includes(cb.value); });
         allCb.checked = values.length === 0;
         updateFilterLabel();
+    }
+
+    // ── Date filter ──────────────────────────────────────────────────────────
+
+    function getDateFrom() {
+        const active = document.querySelector('.date-chip.active');
+        return active ? active.dataset.year : '';
+    }
+
+    function setDateFilter(btn) {
+        document.querySelectorAll('.date-chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        runSearch(searchInput.value.trim(), 1);
+    }
+
+    function setDateFromValue(year) {
+        document.querySelectorAll('.date-chip').forEach(b => {
+            b.classList.toggle('active', b.dataset.year === String(year || ''));
+        });
     }
 
     // Close panel when clicking outside
@@ -843,9 +884,11 @@
         if (query) p.set('q', query);
         (filters || []).forEach(f => p.append('law', f));
         if (page > 1) p.set('page', String(page));
+        const dateFrom = getDateFrom();
+        if (dateFrom) p.set('date_from', dateFrom);
         const url = p.toString() ? `?${p}` : location.pathname;
-        if (push) history.pushState({ query, filters, page }, '', url);
-        else history.replaceState({ query, filters, page }, '', url);
+        if (push) history.pushState({ query, filters, page, dateFrom }, '', url);
+        else history.replaceState({ query, filters, page, dateFrom }, '', url);
     }
 
     async function runSearch(query, page = 1, push = false) {
@@ -865,7 +908,8 @@
         fuzzyNoteEl.innerHTML = '';
         try {
             const lawParams = filters.map(f => '&law=' + encodeURIComponent(f)).join('');
-            const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${lawParams}`;
+            const dateFrom = getDateFrom();
+            const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${lawParams}${dateFrom ? '&date_from=' + dateFrom : ''}`;
             const response = await fetch(url);
             const data = await response.json();
             currentTotal = data.total;
@@ -1180,7 +1224,8 @@
         note.textContent = '';
         try {
             const aiLawParams = aiFilters.map(f => '&law=' + encodeURIComponent(f)).join('');
-            const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${aiLawParams}`;
+            const aiDateFrom = getDateFrom();
+            const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${aiLawParams}${aiDateFrom ? '&date_from=' + aiDateFrom : ''}`;
             const checkRes  = await fetch(checkUrl);
             const checkData = await checkRes.json();
 
@@ -1242,11 +1287,13 @@
 
     window.addEventListener('popstate', e => {
         const st = e.state || {};
-        const q      = st.query   || '';
-        const laws   = st.filters || [];
-        const pg     = st.page    || 1;
+        const q      = st.query    || '';
+        const laws   = st.filters  || [];
+        const pg     = st.page     || 1;
+        const df     = st.dateFrom || '';
         searchInput.value = q;
         setFiltersFromValues(laws);
+        setDateFromValue(df);
         if (q) runSearch(q, pg);
         else {
             resultsContainer.innerHTML = '<div class="no-results">Введите поисковый запрос...</div>';
@@ -1258,11 +1305,13 @@
     });
 
     (function() {
-        const p    = new URLSearchParams(location.search);
-        const q    = p.get('q') || '';
-        const laws = p.getAll('law');
-        const pg   = parseInt(p.get('page') || '1', 10);
+        const p      = new URLSearchParams(location.search);
+        const q      = p.get('q') || '';
+        const laws   = p.getAll('law');
+        const pg     = parseInt(p.get('page') || '1', 10);
+        const df     = p.get('date_from') || '';
         if (laws.length) setFiltersFromValues(laws);
+        if (df) setDateFromValue(df);
         if (q) {
             searchInput.value = q;
             runSearch(q, pg);

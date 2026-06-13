@@ -177,7 +177,7 @@ def _score(text, article_num, law_name, words, exact=True):
     return (tf + title + law_name_hits + hier) * (1 if exact else 0.6)
 
 
-def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters=None):
+def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters=None, date_from=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     # Detect article-number pattern before expansion/lemmatization.
@@ -220,6 +220,16 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
         law_clause = ''
         law_param = []
 
+    # Date filter: extract year from "(ред. DD.MM.YYYY)" in law_name.
+    # Laws without a revision date marker are excluded when date_from is set.
+    if date_from:
+        date_clause = ("AND INSTR(law_name, '(ред. ') > 0 "
+                       "AND CAST(SUBSTR(law_name, INSTR(law_name, '(ред. ') + 12, 4) AS INTEGER) >= ?")
+        date_param = [int(date_from)]
+    else:
+        date_clause = ''
+        date_param = []
+
     rows = []
     seen_rowids = set()
     and_count = 0
@@ -233,8 +243,8 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
             cur.execute(f"""
                 SELECT rowid, law_name, article_num, text_content FROM laws
                 WHERE rowid IN (SELECT rowid FROM laws_fts WHERE laws_fts MATCH ?)
-                {law_clause} LIMIT {MAX_RESULTS}
-            """, [fts_and] + law_param)
+                {law_clause} {date_clause} LIMIT {MAX_RESULTS}
+            """, [fts_and] + law_param + date_param)
             for row in cur.fetchall():
                 if row[0] not in seen_rowids:
                     rows.append(row)
@@ -251,8 +261,8 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
                 cur.execute(f"""
                     SELECT rowid, law_name, article_num, text_content FROM laws
                     WHERE rowid IN (SELECT rowid FROM laws_fts WHERE laws_fts MATCH ?)
-                    {law_clause} LIMIT {MAX_RESULTS}
-                """, [fts_or] + law_param)
+                    {law_clause} {date_clause} LIMIT {MAX_RESULTS}
+                """, [fts_or] + law_param + date_param)
                 for row in cur.fetchall():
                     if row[0] not in seen_rowids:
                         rows.append(row)
@@ -273,10 +283,10 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
 
         # AND
         and_parts = ' AND '.join(f"LOWER(text_content) LIKE ?" for _ in stems)
-        params = [f"%{s}%" for s in stems] + extra_params
+        params = [f"%{s}%" for s in stems] + extra_params + date_param
         cur.execute(f"""
             SELECT rowid, law_name, article_num, text_content
-            FROM laws WHERE {and_parts}{law_extra} LIMIT {MAX_RESULTS}
+            FROM laws WHERE {and_parts}{law_extra} {date_clause} LIMIT {MAX_RESULTS}
         """, params)
         for row in cur.fetchall():
             if row[0] not in seen_rowids:
@@ -288,10 +298,10 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
         # OR supplement: same threshold as FTS path
         if len(rows) < 5 and len(stems) > 1:
             or_parts = ' OR '.join(f"LOWER(text_content) LIKE ?" for _ in stems)
-            or_params = [f"%{s}%" for s in stems] + extra_params
+            or_params = [f"%{s}%" for s in stems] + extra_params + date_param
             cur.execute(f"""
                 SELECT rowid, law_name, article_num, text_content
-                FROM laws WHERE ({or_parts}){law_extra} LIMIT {MAX_RESULTS}
+                FROM laws WHERE ({or_parts}){law_extra} {date_clause} LIMIT {MAX_RESULTS}
             """, or_params)
             for row in cur.fetchall():
                 if row[0] not in seen_rowids:
@@ -306,9 +316,9 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters
         cur.execute(f"""
             SELECT rowid, law_name, article_num, text_content FROM laws
             WHERE (article_num LIKE ? OR article_num LIKE ? OR
-                   article_num LIKE ? OR article_num = ?) {law_clause}
+                   article_num LIKE ? OR article_num = ?) {law_clause} {date_clause}
             LIMIT 50
-        """, [f'{p}.%', f'{p}-%', f'{p} %', p] + law_param)
+        """, [f'{p}.%', f'{p}-%', f'{p} %', p] + law_param + date_param)
         for row in cur.fetchall():
             if row[0] not in seen_rowids:
                 rows.insert(0, row)
@@ -400,11 +410,14 @@ def search_api():
     query = request.args.get("q", "")
     law_filters = request.args.getlist("law")
     law_filter = law_filters[0] if len(law_filters) == 1 else ""
+    date_from = request.args.get("date_from", type=int)
     page = max(1, int(request.args.get("page", 1)))
     if not query:
         return jsonify({"total": 0, "items": []})
 
-    data = search_laws_in_db(query, law_filter, page, law_filters=(law_filters if len(law_filters) > 1 else None))
+    data = search_laws_in_db(query, law_filter, page,
+                             law_filters=(law_filters if len(law_filters) > 1 else None),
+                             date_from=date_from)
     corrected_query = None
 
     # AI expansion: fires when keyword search alone is insufficient.
@@ -422,7 +435,8 @@ def search_api():
         synonyms = _ai_synonyms(query)
         if synonyms:
             syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True,
-                                         law_filters=(law_filters if len(law_filters) > 1 else None))
+                                         law_filters=(law_filters if len(law_filters) > 1 else None),
+                                         date_from=date_from)
             if syn_data["total"] > 0:
                 corrected_query = synonyms
                 if data["total"] < 4 or and_total <= 1:
