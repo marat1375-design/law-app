@@ -177,7 +177,7 @@ def _score(text, article_num, law_name, words, exact=True):
     return (tf + title + law_name_hits + hier) * (1 if exact else 0.6)
 
 
-def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
+def search_laws_in_db(query, law_filter="", page=1, fetch_all=False, law_filters=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     # Detect article-number pattern before expansion/lemmatization.
@@ -209,8 +209,16 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     results = []
     seen_ids = set()
 
-    law_clause = 'AND LOWER(law_name) LIKE ?' if law_filter else ''
-    law_param = [f'%{law_filter.lower()}%'] if law_filter else []
+    # Build law filter clause: supports single law_filter (legacy) or list law_filters.
+    active_filters = law_filters if law_filters else ([law_filter] if law_filter else [])
+    if active_filters:
+        # SQLite LOWER() doesn't convert Cyrillic, so use plain LIKE (filter values already match law name casing).
+        placeholders = ' OR '.join('law_name LIKE ?' for _ in active_filters)
+        law_clause = f'AND ({placeholders})'
+        law_param = [f'%{f}%' for f in active_filters]
+    else:
+        law_clause = ''
+        law_param = []
 
     rows = []
     seen_rowids = set()
@@ -218,12 +226,13 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     and_rowids: set[int] = set()
 
     if _fts_ready and kw:
-        # AND: every keyword stem must appear in the document
+        # AND: every keyword stem must appear in the document.
+        # Use subquery pattern: FTS MATCH finds rowids, base table applies law filter.
         fts_and = ' '.join(_stem(w) + '*' for w in kw)
         try:
             cur.execute(f"""
-                SELECT rowid, law_name, article_num, text_content
-                FROM laws_fts WHERE laws_fts MATCH ?
+                SELECT rowid, law_name, article_num, text_content FROM laws
+                WHERE rowid IN (SELECT rowid FROM laws_fts WHERE laws_fts MATCH ?)
                 {law_clause} LIMIT {MAX_RESULTS}
             """, [fts_and] + law_param)
             for row in cur.fetchall():
@@ -236,16 +245,12 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
             print(f"FTS AND error: {e}")
 
         # OR supplement: run when AND returned very few results.
-        # Threshold=5: catches "увольнение беременной" (AND→3 non-TK docs, ст.54
-        # has "береме" but not "увольн" so AND missed it).
-        # Does NOT fire for "разлив нефти" (AND→6) where OR would flood results
-        # with hundreds of Земельный кодекс land-tenure articles via "земл*".
         if len(rows) < 5 and len(kw) > 1:
             fts_or = ' OR '.join(_stem(w) + '*' for w in kw)
             try:
                 cur.execute(f"""
-                    SELECT rowid, law_name, article_num, text_content
-                    FROM laws_fts WHERE laws_fts MATCH ?
+                    SELECT rowid, law_name, article_num, text_content FROM laws
+                    WHERE rowid IN (SELECT rowid FROM laws_fts WHERE laws_fts MATCH ?)
                     {law_clause} LIMIT {MAX_RESULTS}
                 """, [fts_or] + law_param)
                 for row in cur.fetchall():
@@ -258,15 +263,20 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
     # LIKE fallback (FTS unavailable)
     if not rows and kw:
         stems = [_stem(w) for w in kw]
-        extra_parts = ["LOWER(law_name) LIKE ?"] if law_filter else []
-        extra_params = law_param[:]
+        if active_filters:
+            extra_parts = [f'law_name LIKE ?' for _ in active_filters]
+            extra_params = [f'%{f}%' for f in active_filters]
+        else:
+            extra_parts, extra_params = [], []
+
+        law_extra = (f' AND ({" OR ".join(extra_parts)})' if extra_parts else '')
 
         # AND
-        parts = [f"LOWER(text_content) LIKE ?" for _ in stems] + extra_parts
+        and_parts = ' AND '.join(f"LOWER(text_content) LIKE ?" for _ in stems)
         params = [f"%{s}%" for s in stems] + extra_params
         cur.execute(f"""
             SELECT rowid, law_name, article_num, text_content
-            FROM laws WHERE {' AND '.join(parts)} LIMIT {MAX_RESULTS}
+            FROM laws WHERE {and_parts}{law_extra} LIMIT {MAX_RESULTS}
         """, params)
         for row in cur.fetchall():
             if row[0] not in seen_rowids:
@@ -277,11 +287,11 @@ def search_laws_in_db(query, law_filter="", page=1, fetch_all=False):
 
         # OR supplement: same threshold as FTS path
         if len(rows) < 5 and len(stems) > 1:
-            or_parts = [f"LOWER(text_content) LIKE ?" for _ in stems] + extra_parts
+            or_parts = ' OR '.join(f"LOWER(text_content) LIKE ?" for _ in stems)
             or_params = [f"%{s}%" for s in stems] + extra_params
             cur.execute(f"""
                 SELECT rowid, law_name, article_num, text_content
-                FROM laws WHERE {' OR '.join(or_parts)} LIMIT {MAX_RESULTS}
+                FROM laws WHERE ({or_parts}){law_extra} LIMIT {MAX_RESULTS}
             """, or_params)
             for row in cur.fetchall():
                 if row[0] not in seen_rowids:
@@ -388,12 +398,13 @@ def suggest_api():
 @app.route("/api/search")
 def search_api():
     query = request.args.get("q", "")
-    law_filter = request.args.get("law", "")
+    law_filters = request.args.getlist("law")
+    law_filter = law_filters[0] if len(law_filters) == 1 else ""
     page = max(1, int(request.args.get("page", 1)))
     if not query:
         return jsonify({"total": 0, "items": []})
 
-    data = search_laws_in_db(query, law_filter, page)
+    data = search_laws_in_db(query, law_filter, page, law_filters=(law_filters if len(law_filters) > 1 else None))
     corrected_query = None
 
     # AI expansion: fires when keyword search alone is insufficient.
@@ -410,7 +421,8 @@ def search_api():
     if (data["total"] < 10 or and_total <= 1) and len(meaningful_words) >= 2:
         synonyms = _ai_synonyms(query)
         if synonyms:
-            syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True)
+            syn_data = search_laws_in_db(synonyms, law_filter, 1, fetch_all=True,
+                                         law_filters=(law_filters if len(law_filters) > 1 else None))
             if syn_data["total"] > 0:
                 corrected_query = synonyms
                 if data["total"] < 4 or and_total <= 1:

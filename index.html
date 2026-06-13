@@ -180,17 +180,42 @@
         .ai-query-btn:disabled { opacity: 0.55; cursor: default; }
         .ai-query-note { color: #4A6E8A; font-size: 12px; }
 
-        /* ── Filter select ────────────────────────────────────────── */
-        .filter-box {
+        /* ── Multi-select law filter ──────────────────────────────── */
+        .filter-panel { margin-bottom: 6px; }
+        .filter-toggle {
             width: 100%; padding: 10px 14px; font-size: 14px;
             border-radius: 8px; border: 1px solid rgba(0,175,202,0.18);
             background: #0F2540; color: #90B8D8;
-            box-sizing: border-box; margin-bottom: 6px;
-            outline: none; cursor: pointer;
+            box-sizing: border-box; cursor: pointer;
             transition: border-color 0.2s;
+            display: flex; justify-content: space-between; align-items: center;
+            user-select: none;
         }
-        .filter-box:focus { border-color: #00AFCA; }
-        .filter-box option { background: #0F2540; color: #D8E8F5; }
+        .filter-toggle:hover { border-color: #00AFCA; }
+        .filter-toggle .filter-arrow { font-size: 11px; margin-left: 6px; transition: transform 0.2s; }
+        .filter-toggle.open .filter-arrow { transform: rotate(180deg); }
+        .filter-dropdown {
+            display: none; background: #0F2540;
+            border: 1px solid rgba(0,175,202,0.25); border-top: none;
+            border-radius: 0 0 8px 8px; padding: 6px 0;
+            max-height: 280px; overflow-y: auto;
+        }
+        .filter-dropdown.open { display: block; }
+        .filter-opt {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 14px; cursor: pointer; font-size: 13px; color: #90B8D8;
+            transition: background 0.15s;
+        }
+        .filter-opt:hover { background: rgba(0,175,202,0.08); color: #D8E8F5; }
+        .filter-opt input[type=checkbox] {
+            accent-color: #00AFCA; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;
+        }
+        .filter-opt.all-opt { border-bottom: 1px solid rgba(0,175,202,0.15); margin-bottom: 4px; color: #D8E8F5; font-weight: 500; }
+        .filter-badge {
+            display: inline-block; background: #00AFCA; color: #0A1F35;
+            border-radius: 10px; font-size: 11px; font-weight: 700;
+            padding: 1px 7px; margin-left: 6px; line-height: 1.5;
+        }
 
         /* ── History ──────────────────────────────────────────────── */
         .history { margin-bottom: 12px; font-size: 13px; color: #3A607A; }
@@ -465,34 +490,43 @@
 
         <div class="history" id="history"></div>
 
-        <select id="filterSelect" class="filter-box">
-            <option value="">— Все законы —</option>
-            <option value="КоАП">⚖️  КоАП РК</option>
-            <option value="Уголовный кодекс">🔒  Уголовный кодекс РК</option>
-            <option value="процессуальный кодекс">⚖️  Уголовно-процессуальный кодекс РК</option>
-            <option value="Трудовой кодекс">👷  Трудовой кодекс РК</option>
-            <option value="Гражданский кодекс">🏛️  Гражданский кодекс РК</option>
-            <option value="Налоговый">💰  Налоговый кодекс РК (2025)</option>
-            <option value="Предпринимательский кодекс">🏢  Предпринимательский кодекс РК</option>
-            <option value="Экологический кодекс">🌿  Экологический кодекс РК</option>
-            <option value="Земельный кодекс">🏞️  Земельный кодекс РК</option>
-            <option value="Водный кодекс">💧  Водный кодекс РК</option>
-            <option value="недрах">⛏️  О недрах и недропользовании</option>
-            <option value="Конституция">📜  Конституция РК</option>
-            <option value="защите прав потребителей">🛒  Закон о защите прав потребителей</option>
-            <option value="государственных закупках">📋  Закон о государственных закупках</option>
-            <option value="гражданской защите">🛡️  Закон о гражданской защите</option>
-            <option value="разрешениях">📄  Закон о разрешениях и уведомлениях</option>
-            <option value="атомной энергии">☢️  Об использовании атомной энергии</option>
-            <option value="пожарной безопасности">🔥  Технический регламент пожарной безопасности</option>
-            <option value="опасных грузов">🚛  Правила перевозки опасных грузов</option>
-            <option value="коммунальными отходами">♻️  Правила управления коммунальными отходами</option>
-            <option value="дорожного движения">🚦  Правила дорожного движения РК</option>
-            <option value="ядерных материалов">☣️  Правила транспортировки ядерных материалов</option>
-            <option value="ДСМ-275">🏥  Приказ МЗ РК № ДСМ-275/2020</option>
-            <option value="ДСМ-90">🏥  Приказ МЗ РК № ДСМ-90</option>
-            <option value="СТ РК 1513">♻️  СТ РК 1513-2019 Обращение с отходами</option>
-        </select>
+        <div class="filter-panel" id="filterPanel">
+            <div class="filter-toggle" id="filterToggle" onclick="toggleFilterPanel()">
+                <span id="filterLabel">— Все законы —</span>
+                <span class="filter-arrow">▼</span>
+            </div>
+            <div class="filter-dropdown" id="filterDropdown">
+                <label class="filter-opt all-opt">
+                    <input type="checkbox" id="filterAll" checked onchange="onFilterAllChange()">
+                    Все законы
+                </label>
+                <label class="filter-opt"><input type="checkbox" value="КоАП" onchange="onFilterChange()"> ⚖️  КоАП РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Уголовный кодекс" onchange="onFilterChange()"> 🔒  Уголовный кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="процессуальный кодекс" onchange="onFilterChange()"> ⚖️  Уголовно-процессуальный кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Трудовой кодекс" onchange="onFilterChange()"> 👷  Трудовой кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Гражданский кодекс" onchange="onFilterChange()"> 🏛️  Гражданский кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Налоговый" onchange="onFilterChange()"> 💰  Налоговый кодекс РК (2025)</label>
+                <label class="filter-opt"><input type="checkbox" value="Предпринимательский кодекс" onchange="onFilterChange()"> 🏢  Предпринимательский кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Экологический кодекс" onchange="onFilterChange()"> 🌿  Экологический кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Земельный кодекс" onchange="onFilterChange()"> 🏞️  Земельный кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="Водный кодекс" onchange="onFilterChange()"> 💧  Водный кодекс РК</label>
+                <label class="filter-opt"><input type="checkbox" value="недрах" onchange="onFilterChange()"> ⛏️  О недрах и недропользовании</label>
+                <label class="filter-opt"><input type="checkbox" value="Конституция" onchange="onFilterChange()"> 📜  Конституция РК</label>
+                <label class="filter-opt"><input type="checkbox" value="защите прав потребителей" onchange="onFilterChange()"> 🛒  Закон о защите прав потребителей</label>
+                <label class="filter-opt"><input type="checkbox" value="государственных закупках" onchange="onFilterChange()"> 📋  Закон о государственных закупках</label>
+                <label class="filter-opt"><input type="checkbox" value="гражданской защите" onchange="onFilterChange()"> 🛡️  Закон о гражданской защите</label>
+                <label class="filter-opt"><input type="checkbox" value="разрешениях" onchange="onFilterChange()"> 📄  Закон о разрешениях и уведомлениях</label>
+                <label class="filter-opt"><input type="checkbox" value="атомной энергии" onchange="onFilterChange()"> ☢️  Об использовании атомной энергии</label>
+                <label class="filter-opt"><input type="checkbox" value="пожарной безопасности" onchange="onFilterChange()"> 🔥  Технический регламент пожарной безопасности</label>
+                <label class="filter-opt"><input type="checkbox" value="опасных грузов" onchange="onFilterChange()"> 🚛  Правила перевозки опасных грузов</label>
+                <label class="filter-opt"><input type="checkbox" value="коммунальными отходами" onchange="onFilterChange()"> ♻️  Правила управления коммунальными отходами</label>
+                <label class="filter-opt"><input type="checkbox" value="дорожного движения" onchange="onFilterChange()"> 🚦  Правила дорожного движения РК</label>
+                <label class="filter-opt"><input type="checkbox" value="ядерных материалов" onchange="onFilterChange()"> ☣️  Правила транспортировки ядерных материалов</label>
+                <label class="filter-opt"><input type="checkbox" value="ДСМ-275" onchange="onFilterChange()"> 🏥  Приказ МЗ РК № ДСМ-275/2020</label>
+                <label class="filter-opt"><input type="checkbox" value="ДСМ-90" onchange="onFilterChange()"> 🏥  Приказ МЗ РК № ДСМ-90</label>
+                <label class="filter-opt"><input type="checkbox" value="СТ РК 1513" onchange="onFilterChange()"> ♻️  СТ РК 1513-2019 Обращение с отходами</label>
+            </div>
+        </div>
 
         <div id="count"></div>
         <div id="fuzzy-note"></div>
@@ -507,7 +541,6 @@
 
 <script>
     const searchInput   = document.getElementById('searchInput');
-    const filterSelect  = document.getElementById('filterSelect');
     const resultsContainer = document.getElementById('results');
     const countEl       = document.getElementById('count');
     const fuzzyNoteEl   = document.getElementById('fuzzy-note');
@@ -526,7 +559,71 @@
     const paginationEl  = document.getElementById('pagination');
     const aiActionsEl   = document.getElementById('ai-actions');
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── Multi-select law filter ───────────────────────────────────────────────
+
+    function getFilterCheckboxes() {
+        return Array.from(document.querySelectorAll('#filterDropdown input[type=checkbox]:not(#filterAll)'));
+    }
+
+    function getSelectedFilters() {
+        return getFilterCheckboxes().filter(cb => cb.checked).map(cb => cb.value);
+    }
+
+    function updateFilterLabel() {
+        const selected = getSelectedFilters();
+        const labelEl = document.getElementById('filterLabel');
+        if (selected.length === 0) {
+            labelEl.innerHTML = '— Все законы —';
+        } else if (selected.length === 1) {
+            const cb = getFilterCheckboxes().find(cb => cb.value === selected[0]);
+            const text = cb ? cb.parentElement.textContent.trim() : selected[0];
+            labelEl.innerHTML = escHtml(text);
+        } else {
+            labelEl.innerHTML = `Выбрано законов: <span class="filter-badge">${selected.length}</span>`;
+        }
+    }
+
+    function toggleFilterPanel() {
+        const toggle = document.getElementById('filterToggle');
+        const dropdown = document.getElementById('filterDropdown');
+        const isOpen = toggle.classList.contains('open');
+        toggle.classList.toggle('open', !isOpen);
+        dropdown.classList.toggle('open', !isOpen);
+    }
+
+    function onFilterAllChange() {
+        const allCb = document.getElementById('filterAll');
+        if (allCb.checked) {
+            getFilterCheckboxes().forEach(cb => cb.checked = false);
+        }
+        updateFilterLabel();
+        runSearch(searchInput.value.trim(), 1);
+    }
+
+    function onFilterChange() {
+        const selected = getSelectedFilters();
+        document.getElementById('filterAll').checked = selected.length === 0;
+        updateFilterLabel();
+        runSearch(searchInput.value.trim(), 1);
+    }
+
+    function setFiltersFromValues(values) {
+        const allCb = document.getElementById('filterAll');
+        getFilterCheckboxes().forEach(cb => { cb.checked = values.includes(cb.value); });
+        allCb.checked = values.length === 0;
+        updateFilterLabel();
+    }
+
+    // Close panel when clicking outside
+    document.addEventListener('click', e => {
+        const panel = document.getElementById('filterPanel');
+        if (panel && !panel.contains(e.target)) {
+            document.getElementById('filterToggle').classList.remove('open');
+            document.getElementById('filterDropdown').classList.remove('open');
+        }
+    });
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     function escHtml(s) {
         return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -655,13 +752,9 @@
             div.textContent = name;
             div.addEventListener('mousedown', e => {
                 e.preventDefault();
-                filterSelect.value = '';
-                for (const opt of filterSelect.options) {
-                    if (opt.value && name.toLowerCase().includes(opt.value.toLowerCase())) {
-                        filterSelect.value = opt.value;
-                        break;
-                    }
-                }
+                // Auto-select a matching law filter based on suggestion name
+                const matchCb = getFilterCheckboxes().find(cb => cb.value && name.toLowerCase().includes(cb.value.toLowerCase()));
+                setFiltersFromValues(matchCb ? [matchCb.value] : []);
                 hideSuggestions();
                 runSearch(searchInput.value.trim(), 1);
             });
@@ -739,20 +832,18 @@
             fetchSuggestions(val);
         }, 300);
     });
-    filterSelect.addEventListener('change', () => runSearch(searchInput.value.trim(), 1));
-
-    function updateUrl(query, filter, page, push) {
+    function updateUrl(query, filters, page, push) {
         const p = new URLSearchParams();
         if (query) p.set('q', query);
-        if (filter) p.set('law', filter);
+        (filters || []).forEach(f => p.append('law', f));
         if (page > 1) p.set('page', String(page));
         const url = p.toString() ? `?${p}` : location.pathname;
-        if (push) history.pushState({ query, filter, page }, '', url);
-        else history.replaceState({ query, filter, page }, '', url);
+        if (push) history.pushState({ query, filters, page }, '', url);
+        else history.replaceState({ query, filters, page }, '', url);
     }
 
     async function runSearch(query, page = 1, push = false) {
-        const filter = filterSelect.value;
+        const filters = getSelectedFilters();
         aiActionsEl.innerHTML = '';
         hideSuggestions();
         if (query.length < 2) {
@@ -767,7 +858,8 @@
         paginationEl.innerHTML = '';
         fuzzyNoteEl.innerHTML = '';
         try {
-            const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
+            const lawParams = filters.map(f => '&law=' + encodeURIComponent(f)).join('');
+            const url = `/api/search?q=${encodeURIComponent(query)}&page=${page}${lawParams}`;
             const response = await fetch(url);
             const data = await response.json();
             currentTotal = data.total;
@@ -845,7 +937,7 @@
             expBtn.onclick = exportResults;
             aiActionsEl.appendChild(expBtn);
 
-            updateUrl(query, filter, page, push);
+            updateUrl(query, filters, page, push);
             updateHistory(query);
         } catch (err) { console.error("Ошибка:", err); }
     }
@@ -1076,12 +1168,13 @@
         if (!question) return;
         const btn    = document.getElementById('ai-query-btn');
         const note   = document.getElementById('ai-query-note');
-        const filter = filterSelect.value;
+        const aiFilters = getSelectedFilters();
         btn.disabled = true;
         btn.textContent = '⏳ Проверяю...';
         note.textContent = '';
         try {
-            const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${filter ? '&law=' + encodeURIComponent(filter) : ''}`;
+            const aiLawParams = aiFilters.map(f => '&law=' + encodeURIComponent(f)).join('');
+            const checkUrl = `/api/search?q=${encodeURIComponent(question)}&page=1${aiLawParams}`;
             const checkRes  = await fetch(checkUrl);
             const checkData = await checkRes.json();
 
@@ -1143,11 +1236,11 @@
 
     window.addEventListener('popstate', e => {
         const st = e.state || {};
-        const q   = st.query  || '';
-        const law = st.filter || '';
-        const pg  = st.page   || 1;
-        searchInput.value  = q;
-        filterSelect.value = law;
+        const q      = st.query   || '';
+        const laws   = st.filters || [];
+        const pg     = st.page    || 1;
+        searchInput.value = q;
+        setFiltersFromValues(laws);
         if (q) runSearch(q, pg);
         else {
             resultsContainer.innerHTML = '<div class="no-results">Введите поисковый запрос...</div>';
@@ -1159,13 +1252,13 @@
     });
 
     (function() {
-        const p   = new URLSearchParams(location.search);
-        const q   = p.get('q')   || '';
-        const law = p.get('law') || '';
-        const pg  = parseInt(p.get('page') || '1', 10);
+        const p    = new URLSearchParams(location.search);
+        const q    = p.get('q') || '';
+        const laws = p.getAll('law');
+        const pg   = parseInt(p.get('page') || '1', 10);
+        if (laws.length) setFiltersFromValues(laws);
         if (q) {
-            searchInput.value  = q;
-            if (law) filterSelect.value = law;
+            searchInput.value = q;
             runSearch(q, pg);
         }
     })();
