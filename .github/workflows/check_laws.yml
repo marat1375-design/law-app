@@ -23,7 +23,9 @@ jobs:
 
       - name: Run law update check
         id: check
-        run: python check_updates.py 2>&1 | tee check_output.txt
+        run: |
+          set -o pipefail
+          python check_updates.py 2>&1 | tee check_output.txt
         continue-on-error: true
 
       - name: Write summary
