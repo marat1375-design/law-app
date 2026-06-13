@@ -394,6 +394,8 @@ def reformulate_api():
     return jsonify({"keywords": keywords})
 
 
+_explain_cache: dict[tuple, str] = {}
+
 @app.route("/api/explain", methods=["POST"])
 def explain_api():
     data = request.get_json()
@@ -403,10 +405,15 @@ def explain_api():
     if not article_text:
         return jsonify({"error": "Текст не передан"}), 400
 
+    cache_key = (law_name, article_num)
+    if cache_key in _explain_cache:
+        return Response(_explain_cache[cache_key], mimetype="text/plain; charset=utf-8")
+
     client = anthropic.Anthropic()
     header = f"{law_name}, {article_num}\n\n" if law_name or article_num else ""
 
     def generate():
+        chunks = []
         try:
             with client.messages.stream(
                 model="claude-haiku-4-5-20251001",
@@ -423,9 +430,12 @@ def explain_api():
                 }]
             ) as stream:
                 for text in stream.text_stream:
+                    chunks.append(text)
                     yield text
         except Exception as e:
             yield f"[Ошибка: {e}]"
+        else:
+            _explain_cache[cache_key] = "".join(chunks)
 
     return Response(stream_with_context(generate()), mimetype="text/plain; charset=utf-8")
 
