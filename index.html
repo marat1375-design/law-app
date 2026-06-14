@@ -444,6 +444,57 @@
             padding: 52px 0; font-size: 15px;
         }
 
+        /* ── Selection popup ──────────────────────────────────────── */
+        #selection-popup {
+            position: absolute;
+            background: #0F2540;
+            border: 1px solid rgba(0,175,202,0.55);
+            border-radius: 7px;
+            padding: 3px;
+            z-index: 9999;
+            display: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,.55);
+            pointer-events: auto;
+        }
+        #selection-popup button {
+            background: linear-gradient(135deg, #1A3A5C, #1D4870);
+            border: none; color: #00AFCA;
+            padding: 6px 13px; border-radius: 5px;
+            cursor: pointer; font-size: 12.5px; white-space: nowrap;
+            transition: background 0.15s;
+        }
+        #selection-popup button:hover { background: #215A8C; }
+        #selection-popup .saved-msg {
+            display: inline-block;
+            color: #2ecc71; padding: 6px 13px;
+            font-size: 12.5px; white-space: nowrap;
+        }
+
+        /* ── Fragment quote in bookmarks ──────────────────────────── */
+        .fragment-quote {
+            border-left: 3px solid rgba(245,200,66,0.45);
+            padding: 6px 12px;
+            font-style: italic;
+            color: #C8D8E8;
+            font-size: 13.5px;
+            line-height: 1.65;
+            margin-bottom: 7px;
+            background: rgba(245,200,66,0.04);
+            border-radius: 0 4px 4px 0;
+        }
+
+        /* ── PDF button ───────────────────────────────────────────── */
+        .pdf-btn {
+            background: none;
+            border: 1px solid rgba(231,76,60,0.45);
+            color: #e74c3c;
+            padding: 9px 20px; border-radius: 7px;
+            cursor: pointer; font-size: 13.5px;
+            margin-bottom: 14px;
+            transition: all 0.15s;
+        }
+        .pdf-btn:hover { background: rgba(231,76,60,0.10); border-color: #e74c3c; }
+
         /* ── Mobile ───────────────────────────────────────────────── */
         @media (max-width: 600px) {
             .hero { padding: 26px 16px 24px; }
@@ -465,6 +516,7 @@
 <body>
 
 <button id="scroll-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+<div id="selection-popup"></div>
 
 <!-- ── Hero ──────────────────────────────────────────────── -->
 <header class="hero">
@@ -1107,23 +1159,43 @@
         const panel = document.getElementById('bookmarks-panel');
         const bks = getBookmarks();
         if (!bks.length) {
-            panel.innerHTML = '<div class="bk-empty">Нет сохранённых статей.<br><br>Нажмите 🔖 Сохранить на любой карточке.</div>';
+            panel.innerHTML = '<div class="bk-empty">Нет сохранённых статей.<br><br>Нажмите 🔖 Сохранить на любой карточке<br>или выделите текст мышкой и нажмите 💾.</div>';
             return;
         }
-        panel.innerHTML = `<div class="count">Сохранено: ${bks.length} статей</div>`;
+        const fragCount = bks.filter(b => b.fragment).length;
+        const countLabel = fragCount
+            ? `${bks.length} записей (${fragCount} фрагм. + ${bks.length - fragCount} ст.)`
+            : `${bks.length} статей`;
+        panel.innerHTML = `
+            <div class="count" style="margin-bottom:8px">Сохранено: ${countLabel}</div>
+            <button class="pdf-btn" onclick="downloadBookmarksPDF()">📄 Скачать PDF</button>
+        `;
         bks.forEach(item => {
-            const preview = item.text_content.substring(0, 300);
+            const safeId = item.id.replace(/'/g, "\\'");
             const card = document.createElement('div');
             card.className = 'law-card';
-            card.innerHTML = `
-                <div class="law-title">${escHtml(item.law_name)}</div>
-                <div class="article-num">${escHtml(item.article_num)}</div>
-                <div class="law-text">${escHtml(preview)}${item.text_content.length > 300 ? '...' : ''}</div>
-                <div class="btn-row">
-                    <button class="bookmark-btn saved" onclick="removeBookmark('${item.id.replace(/'/g, "\\'")}')">★ Удалить</button>
-                    <button class="copy-btn" onclick="copyBk(this, '${item.id.replace(/'/g, "\\'")}')">📋 Копировать</button>
-                </div>
-            `;
+            if (item.fragment) {
+                card.innerHTML = `
+                    <div class="law-title">${escHtml(item.law_name)}</div>
+                    <div class="article-num">${escHtml(item.article_num)}</div>
+                    <div class="fragment-quote">${escHtml(item.fragment)}</div>
+                    <div class="btn-row">
+                        <button class="bookmark-btn saved" onclick="removeBookmark('${safeId}')">★ Удалить</button>
+                        <button class="copy-btn" onclick="copyBkFragment(this,'${safeId}')">📋 Копировать</button>
+                    </div>
+                `;
+            } else {
+                const preview = (item.text_content || '').substring(0, 300);
+                card.innerHTML = `
+                    <div class="law-title">${escHtml(item.law_name)}</div>
+                    <div class="article-num">${escHtml(item.article_num)}</div>
+                    <div class="law-text">${escHtml(preview)}${(item.text_content || '').length > 300 ? '...' : ''}</div>
+                    <div class="btn-row">
+                        <button class="bookmark-btn saved" onclick="removeBookmark('${safeId}')">★ Удалить</button>
+                        <button class="copy-btn" onclick="copyBk(this,'${safeId}')">📋 Копировать</button>
+                    </div>
+                `;
+            }
             panel.appendChild(card);
         });
     }
@@ -1131,7 +1203,20 @@
     function copyBk(btn, id) {
         const item = getBookmarks().find(b => b.id === id);
         if (!item) return;
-        navigator.clipboard.writeText(item.text_content).then(() => {
+        navigator.clipboard.writeText(item.text_content || '').then(() => {
+            btn.innerText = '✅ Скопировано';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.innerText = '📋 Копировать'; btn.classList.remove('copied'); }, 2000);
+        });
+    }
+
+    function copyBkFragment(btn, id) {
+        const item = getBookmarks().find(b => b.id === id);
+        if (!item) return;
+        const text = item.fragment
+            ? `${item.fragment}\n\n— ${item.law_name}, ${item.article_num}`
+            : (item.text_content || '');
+        navigator.clipboard.writeText(text).then(() => {
             btn.innerText = '✅ Скопировано';
             btn.classList.add('copied');
             setTimeout(() => { btn.innerText = '📋 Копировать'; btn.classList.remove('copied'); }, 2000);
@@ -1317,6 +1402,133 @@
             runSearch(q, pg);
         }
     })();
+
+    // ── Text selection → fragment save ───────────────────────────────────────
+
+    let selectionCardIndex = null;
+
+    function hideSelectionPopup() {
+        const p = document.getElementById('selection-popup');
+        if (p) p.style.display = 'none';
+        selectionCardIndex = null;
+    }
+
+    function saveSelectedFragment() {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : '';
+        if (!text || selectionCardIndex === null) return;
+        const item = lastResults[selectionCardIndex];
+        if (!item) return;
+
+        let bks = getBookmarks();
+        bks.unshift({
+            id: 'frag_' + Date.now(),
+            law_name: item.law_name,
+            article_num: item.article_num,
+            fragment: text
+        });
+        if (bks.length > 200) bks.pop();
+        localStorage.setItem('lawBookmarks', JSON.stringify(bks));
+        updateBkCount();
+
+        const popup = document.getElementById('selection-popup');
+        popup.innerHTML = '<span class="saved-msg">✅ Фрагмент сохранён!</span>';
+        if (sel) sel.removeAllRanges();
+        setTimeout(hideSelectionPopup, 1500);
+    }
+
+    document.addEventListener('mouseup', function(e) {
+        if (e.target.closest('#selection-popup')) return;
+        setTimeout(function() {
+            const sel = window.getSelection();
+            const text = sel ? sel.toString().trim() : '';
+            if (!text || text.length < 5 || !sel.rangeCount) {
+                hideSelectionPopup();
+                return;
+            }
+            const range = sel.getRangeAt(0);
+            const node = range.commonAncestorContainer;
+            const el = node.nodeType === 3 ? node.parentElement : node;
+            const lawTextEl = el.closest('[id^="text-"]');
+            if (!lawTextEl) { hideSelectionPopup(); return; }
+            const m = lawTextEl.id.match(/^text-(\d+)$/);
+            if (!m) { hideSelectionPopup(); return; }
+
+            selectionCardIndex = parseInt(m[1]);
+            const rect = range.getBoundingClientRect();
+            const popup = document.getElementById('selection-popup');
+            popup.innerHTML = '<button onclick="saveSelectedFragment()">💾 Сохранить фрагмент</button>';
+            popup.style.left = (rect.left + window.scrollX) + 'px';
+            popup.style.top  = (rect.bottom + window.scrollY + 6) + 'px';
+            popup.style.display = 'block';
+        }, 10);
+    });
+
+    document.addEventListener('mousedown', function(e) {
+        if (!e.target.closest('#selection-popup')) hideSelectionPopup();
+    });
+
+    // ── Download bookmarks as PDF (via browser print) ─────────────────────────
+
+    function downloadBookmarksPDF() {
+        const bks = getBookmarks();
+        if (!bks.length) { alert('Нет сохранённых закладок для экспорта.'); return; }
+
+        function esc(s) {
+            return String(s || '')
+                .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                .replace(/\n/g,'<br>');
+        }
+
+        const date = new Date().toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
+        const fragCount = bks.filter(b => b.fragment).length;
+
+        let html = `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="UTF-8">
+<title>Закладки — Справочник Законов РК</title>
+<style>
+  @page { margin: 20mm 18mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 10pt; line-height: 1.55; }
+  h1 { font-size: 14pt; border-bottom: 1.5pt solid #000; padding-bottom: 5pt; margin-bottom: 3pt; }
+  .meta { font-size: 8.5pt; color: #555; margin-bottom: 18pt; }
+  .item { margin-bottom: 16pt; page-break-inside: avoid; }
+  .item-title { font-size: 10.5pt; font-weight: bold; margin-bottom: 1pt; }
+  .item-art { font-size: 9pt; color: #333; margin-bottom: 5pt; }
+  .item-text { font-size: 9.5pt; line-height: 1.6; }
+  .frag-quote { border-left: 2pt solid #555; padding: 3pt 0 3pt 8pt;
+    font-size: 9.5pt; line-height: 1.65; font-style: italic; margin-bottom: 4pt; }
+  .frag-source { font-size: 8.5pt; color: #444; }
+  .divider { border: none; border-top: 0.5pt solid #bbb; margin: 12pt 0; }
+</style></head><body>
+<h1>Справочник Законов РК — Закладки</h1>
+<div class="meta">Дата: ${date} &nbsp;|&nbsp; Всего: ${bks.length}
+${fragCount ? ` (фрагментов: ${fragCount}, статей: ${bks.length - fragCount})` : ''}</div>`;
+
+        bks.forEach((item, i) => {
+            html += '<div class="item">';
+            if (item.fragment) {
+                html += `<div class="frag-quote">${esc(item.fragment)}</div>`;
+                html += `<div class="frag-source">— ${esc(item.law_name)}, ${esc(item.article_num)}</div>`;
+            } else {
+                const txt = (item.text_content || '').substring(0, 1500);
+                const more = (item.text_content || '').length > 1500 ? '...' : '';
+                html += `<div class="item-title">${esc(item.law_name)}</div>`;
+                html += `<div class="item-art">${esc(item.article_num)}</div>`;
+                html += `<div class="item-text">${esc(txt)}${more}</div>`;
+            }
+            html += '</div>';
+            if (i < bks.length - 1) html += '<hr class="divider">';
+        });
+
+        html += '</body></html>';
+
+        const win = window.open('', '_blank', 'width=820,height=680');
+        if (!win) { alert('Браузер заблокировал всплывающее окно. Разрешите pop-ups для этого сайта.'); return; }
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => win.print(), 350);
+    }
 
     renderHistory();
     updateBkCount();
