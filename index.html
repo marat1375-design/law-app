@@ -495,6 +495,41 @@
         }
         .pdf-btn:hover { background: rgba(231,76,60,0.10); border-color: #e74c3c; }
 
+        /* ── Print / PDF export ──────────────────────────────────── */
+        /*
+         * Print-in-place approach: overlay is injected into the current page,
+         * body.pdf-printing hides everything else via @media print.
+         * No window.open() → works on iOS Safari and Android Chrome without
+         * popup-blocker issues. afterprint removes the class on all platforms;
+         * a 60s fallback covers old iOS that doesn't fire afterprint.
+         */
+        #pdf-print-overlay { display: none; }
+        @media print {
+            @page { margin: 20mm 18mm; size: A4; }
+            body.pdf-printing > *:not(#pdf-print-overlay) { display: none !important; }
+            body.pdf-printing #pdf-print-overlay {
+                display: block;
+                font-family: Arial, Helvetica, sans-serif;
+                color: #000; font-size: 10pt; line-height: 1.55;
+            }
+            #pdf-print-overlay h1 {
+                font-size: 14pt; border-bottom: 1.5pt solid #000;
+                padding-bottom: 5pt; margin-bottom: 3pt;
+            }
+            #pdf-print-overlay .meta { font-size: 8.5pt; color: #555; margin-bottom: 18pt; }
+            #pdf-print-overlay .item { margin-bottom: 16pt; page-break-inside: avoid; }
+            #pdf-print-overlay .item-title { font-size: 10.5pt; font-weight: bold; margin-bottom: 1pt; }
+            #pdf-print-overlay .item-art { font-size: 9pt; color: #333; margin-bottom: 5pt; }
+            #pdf-print-overlay .item-text { font-size: 9.5pt; line-height: 1.6; }
+            #pdf-print-overlay .frag-quote {
+                border-left: 2pt solid #555; padding: 3pt 0 3pt 8pt;
+                font-size: 9.5pt; line-height: 1.65;
+                font-style: italic; margin-bottom: 4pt;
+            }
+            #pdf-print-overlay .frag-source { font-size: 8.5pt; color: #444; }
+            #pdf-print-overlay .divider { border: none; border-top: 0.5pt solid #bbb; margin: 12pt 0; }
+        }
+
         /* ── Mobile ───────────────────────────────────────────────── */
         @media (max-width: 600px) {
             .hero { padding: 26px 16px 24px; }
@@ -1468,7 +1503,11 @@
         if (!e.target.closest('#selection-popup')) hideSelectionPopup();
     });
 
-    // ── Download bookmarks as PDF (via browser print) ─────────────────────────
+    // ── Download bookmarks as PDF ─────────────────────────────────────────────
+    // Uses print-in-place: injects content into current page, hides everything
+    // else via @media print body.pdf-printing. No window.open() → no popup
+    // blockers on iOS Safari / Android Chrome. afterprint cleans up; 60s
+    // fallback covers iOS < 13 which doesn't always fire afterprint.
 
     function downloadBookmarksPDF() {
         const bks = getBookmarks();
@@ -1483,26 +1522,8 @@
         const date = new Date().toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
         const fragCount = bks.filter(b => b.fragment).length;
 
-        let html = `<!DOCTYPE html>
-<html lang="ru"><head><meta charset="UTF-8">
-<title>Закладки — Справочник Законов РК</title>
-<style>
-  @page { margin: 20mm 18mm; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 10pt; line-height: 1.55; }
-  h1 { font-size: 14pt; border-bottom: 1.5pt solid #000; padding-bottom: 5pt; margin-bottom: 3pt; }
-  .meta { font-size: 8.5pt; color: #555; margin-bottom: 18pt; }
-  .item { margin-bottom: 16pt; page-break-inside: avoid; }
-  .item-title { font-size: 10.5pt; font-weight: bold; margin-bottom: 1pt; }
-  .item-art { font-size: 9pt; color: #333; margin-bottom: 5pt; }
-  .item-text { font-size: 9.5pt; line-height: 1.6; }
-  .frag-quote { border-left: 2pt solid #555; padding: 3pt 0 3pt 8pt;
-    font-size: 9.5pt; line-height: 1.65; font-style: italic; margin-bottom: 4pt; }
-  .frag-source { font-size: 8.5pt; color: #444; }
-  .divider { border: none; border-top: 0.5pt solid #bbb; margin: 12pt 0; }
-</style></head><body>
-<h1>Справочник Законов РК — Закладки</h1>
-<div class="meta">Дата: ${date} &nbsp;|&nbsp; Всего: ${bks.length}
-${fragCount ? ` (фрагментов: ${fragCount}, статей: ${bks.length - fragCount})` : ''}</div>`;
+        let html = `<h1>Справочник Законов РК — Закладки</h1>
+<div class="meta">Дата: ${date}&nbsp;|&nbsp;Всего: ${bks.length}${fragCount ? ` (фрагм.: ${fragCount}, ст.: ${bks.length - fragCount})` : ''}</div>`;
 
         bks.forEach((item, i) => {
             html += '<div class="item">';
@@ -1520,14 +1541,24 @@ ${fragCount ? ` (фрагментов: ${fragCount}, статей: ${bks.length 
             if (i < bks.length - 1) html += '<hr class="divider">';
         });
 
-        html += '</body></html>';
+        let overlay = document.getElementById('pdf-print-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'pdf-print-overlay';
+            document.body.appendChild(overlay);
+        }
+        overlay.innerHTML = html;
+        document.body.classList.add('pdf-printing');
 
-        const win = window.open('', '_blank', 'width=820,height=680');
-        if (!win) { alert('Браузер заблокировал всплывающее окно. Разрешите pop-ups для этого сайта.'); return; }
-        win.document.write(html);
-        win.document.close();
-        win.focus();
-        setTimeout(() => win.print(), 350);
+        function cleanup() {
+            document.body.classList.remove('pdf-printing');
+            overlay.innerHTML = '';
+            clearTimeout(fallback);
+        }
+        const fallback = setTimeout(cleanup, 60000);
+        window.addEventListener('afterprint', cleanup, { once: true });
+
+        window.print();
     }
 
     renderHistory();
